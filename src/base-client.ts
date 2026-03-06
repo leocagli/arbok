@@ -32,6 +32,9 @@ import {
   ATTR_UUID,
   ATTR_WALLET,
   DEFAULT_EXPIRY_SECONDS,
+  LEGACY_ARBOK_ATTR_TYPE,
+  LEGACY_ARBOK_ATTR_UUID,
+  LEGACY_ARBOK_ATTR_WALLET,
   LEGACY_ATTR_TYPE,
   LEGACY_ATTR_UUID,
   LEGACY_ATTR_WALLET,
@@ -104,9 +107,28 @@ export class BaseClient {
       .withAttributes(true)
       .fetch()
 
-    const legacyResult = result.entities.length > 0
-      ? result
-      : await searchCdn.entity
+    let entity = result.entities[0]
+    if (!entity) {
+      try {
+        const dottedResult = await searchCdn.entity
+          .query()
+          .where([
+            eq(LEGACY_ARBOK_ATTR_TYPE, PROFILE_TYPE),
+            eq(LEGACY_ARBOK_ATTR_UUID, this.uuid),
+            eq(LEGACY_ARBOK_ATTR_WALLET, this.wallet),
+          ])
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        entity = dottedResult.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
+
+    if (!entity) {
+      try {
+        const asideResult = await searchCdn.entity
           .query()
           .where([
             eq(LEGACY_ATTR_TYPE, PROFILE_TYPE),
@@ -116,8 +138,12 @@ export class BaseClient {
           .withPayload(true)
           .withAttributes(true)
           .fetch()
+        entity = asideResult.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
 
-    const entity = legacyResult.entities[0]
     if (!entity) return null
 
     const profile = entity.toJson() as BaseProfileData
@@ -356,6 +382,9 @@ function buildProfileAttributes(uuid: string, wallet: string): Array<{ key: stri
     { key: ATTR_TYPE, value: PROFILE_TYPE },
     { key: ATTR_UUID, value: uuid },
     { key: ATTR_WALLET, value: wallet },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: PROFILE_TYPE },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: uuid },
+    { key: LEGACY_ARBOK_ATTR_WALLET, value: wallet },
     { key: LEGACY_ATTR_TYPE, value: PROFILE_TYPE },
     { key: LEGACY_ATTR_UUID, value: uuid },
     { key: LEGACY_ATTR_WALLET, value: wallet },

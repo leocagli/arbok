@@ -1,8 +1,11 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PORT = 8000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const DEMO_ROOT = __dirname;
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
@@ -15,7 +18,7 @@ const mimeTypes = {
 };
 
 http.createServer((req, res) => {
-    const urlPath = req.url.split('?')[0];
+    const urlPath = (req.url || '/').split('?')[0];
     let filePath;
 
     if (urlPath === '/') {
@@ -33,7 +36,12 @@ http.createServer((req, res) => {
             return;
         }
         const ext = path.extname(filePath);
-        res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'text/plain' });
+        res.writeHead(200, {
+            'Content-Type': mimeTypes[ext] || 'text/plain',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+        });
         res.end(data);
     });
 }).listen(PORT, () => {

@@ -1,3 +1,5 @@
 /node_modules
 private_test
 /dist
+/.tools
+/output

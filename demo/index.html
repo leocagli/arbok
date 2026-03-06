@@ -5,58 +5,93 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arbok - Red Social Descentralizada</title>
     <link rel="stylesheet" href="styles.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "@arkiv-network/sdk": "https://esm.sh/@arkiv-network/sdk@0.6.2",
+                "@arkiv-network/sdk/": "https://esm.sh/@arkiv-network/sdk@0.6.2/"
+            }
+        }
+    </script>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🐍 Arbok</h1>
-            <p>Red social descentralizada en Arkiv Network</p>
-        </header>
-
-        <div id="wallet-section" class="card">
-            <h2>Conectar Wallet</h2>
-            <button id="connect-wallet" class="btn btn-primary">Conectar MetaMask</button>
-            <div id="wallet-info" class="hidden">
-                <p>Wallet: <span id="wallet-address"></span></p>
-                <button id="disconnect-wallet" class="btn btn-secondary">Desconectar</button>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand-wrap">
+                <h1 class="brand">arbok</h1>
+                <span class="tagline">social en arkiv</span>
+            </div>
+            <div id="wallet-section" class="wallet-box">
+                <button id="connect-wallet" class="btn btn-primary">Conectar Wallet</button>
+                <div id="wallet-info" class="hidden">
+                    <span id="wallet-address" class="wallet-address"></span>
+                    <button id="disconnect-wallet" class="btn btn-secondary">Salir</button>
+                </div>
+                <p id="wallet-status" class="wallet-status hidden"></p>
             </div>
         </div>
+    </header>
 
-        <div id="profile-section" class="card hidden">
-            <h2>Mi Perfil</h2>
-            <div id="profile-form">
-                <input type="text" id="display-name" placeholder="Nombre para mostrar">
-                <textarea id="bio" placeholder="Bio"></textarea>
-                <input type="text" id="photo-url" placeholder="URL de foto">
-                <button id="save-profile" class="btn btn-primary">Guardar Perfil</button>
-            </div>
-            <div id="profile-display" class="hidden">
-                <img id="profile-photo" src="" alt="Foto">
-                <h3 id="profile-name"></h3>
-                <p id="profile-bio"></p>
-                <button id="edit-profile" class="btn btn-secondary">Editar</button>
-            </div>
-        </div>
+    <main class="app-shell">
+        <aside class="left-column">
+            <section id="profile-section" class="card hidden">
+                <h2>Perfil</h2>
+                <div id="profile-display" class="hidden profile-head">
+                    <img id="profile-photo" src="" alt="Foto">
+                    <h3 id="profile-name"></h3>
+                    <p id="profile-bio"></p>
+                    <p id="profile-photo-ref" class="photo-ref hidden"></p>
+                </div>
+                <div id="profile-form" class="profile-form">
+                    <input type="text" id="display-name" placeholder="Nombre para mostrar">
+                    <textarea id="bio" placeholder="Cuenta algo sobre ti"></textarea>
+                    <input type="text" id="photo-url" placeholder="URL foto (opcional)">
+                    <label class="file-label">
+                        Subir foto
+                        <input type="file" id="profile-photo-file" accept="image/*">
+                    </label>
+                    <p id="profile-upload-status" class="upload-status hidden"></p>
+                    <div class="row-actions">
+                        <button id="save-profile" class="btn btn-primary">Guardar</button>
+                        <button id="edit-profile" class="btn btn-secondary">Editar</button>
+                    </div>
+                </div>
+            </section>
 
-        <div id="post-section" class="card hidden">
-            <h2>Crear Post</h2>
-            <textarea id="post-content" placeholder="¿Qué estás pensando?"></textarea>
-            <button id="create-post" class="btn btn-primary">Publicar</button>
-        </div>
+            <section id="social-section" class="card hidden">
+                <h2>Social</h2>
+                <input type="text" id="follow-uuid" placeholder="UUID para seguir">
+                <button id="follow-btn" class="btn btn-primary btn-full">Seguir</button>
+                <div id="followers-list" class="social-stats"></div>
+                <div class="following-wrap">
+                    <h3>Siguiendo</h3>
+                    <div id="following-list" class="following-list"></div>
+                </div>
+            </section>
+        </aside>
 
-        <div id="feed-section" class="card hidden">
-            <h2>Feed</h2>
-            <div id="posts-list"></div>
-        </div>
+        <section class="main-column">
+            <section id="post-section" class="card hidden">
+                <h2>Publicar</h2>
+                <textarea id="post-content" placeholder="¿Qué estás pensando?"></textarea>
+                <label class="file-label">
+                    Adjuntar archivo
+                    <input type="file" id="post-file" accept="image/*,video/*,audio/*">
+                </label>
+                <p id="post-upload-status" class="upload-status hidden"></p>
+                <div class="row-actions">
+                    <button id="create-post" class="btn btn-primary">Publicar</button>
+                    <button id="refresh-feed" class="btn btn-secondary" type="button">Actualizar Feed</button>
+                </div>
+            </section>
 
-        <div id="social-section" class="card hidden">
-            <h2>Social</h2>
-            <input type="text" id="follow-uuid" placeholder="UUID para seguir">
-            <button id="follow-btn" class="btn btn-primary">Seguir</button>
-            <div id="followers-list"></div>
-        </div>
-    </div>
+            <section id="feed-section" class="card hidden">
+                <h2>Feed social</h2>
+                <div id="posts-list"></div>
+            </section>
+        </section>
+    </main>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

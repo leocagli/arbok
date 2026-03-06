@@ -21,6 +21,10 @@ import {
   ATTR_UUID,
   ATTR_WALLET,
   DEFAULT_EXPIRY_SECONDS,
+  LEGACY_ARBOK_ATTR_TARGET_KEY,
+  LEGACY_ARBOK_ATTR_TYPE,
+  LEGACY_ARBOK_ATTR_UUID,
+  LEGACY_ARBOK_ATTR_WALLET,
   LEGACY_ATTR_TARGET_KEY,
   LEGACY_ATTR_TYPE,
   LEGACY_ATTR_UUID,
@@ -411,6 +415,9 @@ function buildPostAttributes(authorUuid: string, authorWallet: string): Array<{ 
     { key: ATTR_TYPE, value: SOCIAL_POST_TYPE },
     { key: ATTR_UUID, value: authorUuid },
     { key: ATTR_WALLET, value: authorWallet },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: SOCIAL_POST_TYPE },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: authorUuid },
+    { key: LEGACY_ARBOK_ATTR_WALLET, value: authorWallet },
     { key: LEGACY_ATTR_TYPE, value: LEGACY_SOCIAL_POST_TYPE },
     { key: LEGACY_ATTR_UUID, value: authorUuid },
     { key: LEGACY_ATTR_WALLET, value: authorWallet },
@@ -422,6 +429,9 @@ function buildReactionAttributes(reactorUuid: string, targetEntityKey: string): 
     { key: ATTR_TYPE, value: SOCIAL_REACTION_TYPE },
     { key: ATTR_UUID, value: reactorUuid },
     { key: ATTR_TARGET_KEY, value: targetEntityKey },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: SOCIAL_REACTION_TYPE },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: reactorUuid },
+    { key: LEGACY_ARBOK_ATTR_TARGET_KEY, value: targetEntityKey },
     { key: LEGACY_ATTR_TYPE, value: LEGACY_SOCIAL_REACTION_TYPE },
     { key: LEGACY_ATTR_UUID, value: reactorUuid },
     { key: LEGACY_ATTR_TARGET_KEY, value: targetEntityKey },
@@ -433,6 +443,9 @@ function buildCommentAttributes(authorUuid: string, targetEntityKey: string): Ar
     { key: ATTR_TYPE, value: SOCIAL_COMMENT_TYPE },
     { key: ATTR_UUID, value: authorUuid },
     { key: ATTR_TARGET_KEY, value: targetEntityKey },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: SOCIAL_COMMENT_TYPE },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: authorUuid },
+    { key: LEGACY_ARBOK_ATTR_TARGET_KEY, value: targetEntityKey },
     { key: LEGACY_ATTR_TYPE, value: LEGACY_SOCIAL_COMMENT_TYPE },
     { key: LEGACY_ATTR_UUID, value: authorUuid },
     { key: LEGACY_ATTR_TARGET_KEY, value: targetEntityKey },
@@ -444,10 +457,14 @@ async function queryDual(
   primaryWhere: unknown[],
   legacyWhere: unknown[],
 ): Promise<{ entities: Array<{ key: string; toJson: () => unknown }> }> {
-  const [primary, legacy] = await Promise.all([
-    cdn.entity.query().where(primaryWhere).withPayload(true).fetch(),
-    cdn.entity.query().where(legacyWhere).withPayload(true).fetch(),
-  ])
+  const primary = await cdn.entity.query().where(primaryWhere).withPayload(true).fetch()
+
+  let legacy: { entities: Array<{ key: string; toJson: () => unknown }> } = { entities: [] }
+  try {
+    legacy = await cdn.entity.query().where(legacyWhere).withPayload(true).fetch()
+  } catch {
+    legacy = { entities: [] }
+  }
 
   const byKey = new Map<string, { key: string; toJson: () => unknown }>()
   for (const entity of primary.entities) byKey.set(entity.key, entity)

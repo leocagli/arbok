@@ -3,7 +3,7 @@ import socketserver
 import webbrowser
 import os
 
-PORT = 8080
+PORT = 3000
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 

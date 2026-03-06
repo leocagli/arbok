@@ -1,12 +1,20 @@
 /** Shared attribute keys used for all Arbok entities. */
-export const ATTR_TYPE = 'arbok.type'
-export const ATTR_UUID = 'arbok.uuid'
-export const ATTR_WALLET = 'arbok.wallet'
-export const ATTR_NAMESPACE = 'arbok.namespace'
+export const ATTR_TYPE = 'arbok_type'
+export const ATTR_UUID = 'arbok_uuid'
+export const ATTR_WALLET = 'arbok_wallet'
+export const ATTR_NAMESPACE = 'arbok_namespace'
 
 /** Attribute keys for social graph entities. */
-export const ATTR_TARGET_UUID = 'arbok.social.target'      // followee / blocked / friend
-export const ATTR_TARGET_KEY = 'arbok.social.target_key'  // post/comment entity key
+export const ATTR_TARGET_UUID = 'arbok_social_target'      // followee / blocked / friend
+export const ATTR_TARGET_KEY = 'arbok_social_target_key'  // post/comment entity key
+
+/** Legacy dotted Arbok attribute keys for backward compatibility. */
+export const LEGACY_ARBOK_ATTR_TYPE = 'arbok.type'
+export const LEGACY_ARBOK_ATTR_UUID = 'arbok.uuid'
+export const LEGACY_ARBOK_ATTR_WALLET = 'arbok.wallet'
+export const LEGACY_ARBOK_ATTR_NAMESPACE = 'arbok.namespace'
+export const LEGACY_ARBOK_ATTR_TARGET_UUID = 'arbok.social.target'
+export const LEGACY_ARBOK_ATTR_TARGET_KEY = 'arbok.social.target_key'
 
 /** Entity type discriminators stored in `arbok.type`. */
 export const PROFILE_TYPE = 'profile'

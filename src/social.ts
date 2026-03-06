@@ -22,6 +22,9 @@ import {
   ATTR_UUID,
   ATTR_WALLET,
   DEFAULT_EXPIRY_SECONDS,
+  LEGACY_ARBOK_ATTR_TARGET_UUID,
+  LEGACY_ARBOK_ATTR_TYPE,
+  LEGACY_ARBOK_ATTR_UUID,
   LEGACY_ATTR_TARGET_UUID,
   LEGACY_ATTR_TYPE,
   LEGACY_ATTR_UUID,
@@ -497,6 +500,9 @@ function buildSocialAttributes(
     { key: ATTR_TYPE, value: type },
     { key: ATTR_UUID, value: actorUuid },
     { key: ATTR_TARGET_UUID, value: targetUuid },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: type },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: actorUuid },
+    { key: LEGACY_ARBOK_ATTR_TARGET_UUID, value: targetUuid },
     { key: LEGACY_ATTR_TYPE, value: legacyType },
     { key: LEGACY_ATTR_UUID, value: actorUuid },
     { key: LEGACY_ATTR_TARGET_UUID, value: targetUuid },
@@ -508,10 +514,14 @@ async function queryDual(
   primaryWhere: unknown[],
   legacyWhere: unknown[],
 ): Promise<{ entities: Array<{ key: string; toJson: () => unknown }> }> {
-  const [primary, legacy] = await Promise.all([
-    cdn.entity.query().where(primaryWhere).withPayload(true).fetch(),
-    cdn.entity.query().where(legacyWhere).withPayload(true).fetch(),
-  ])
+  const primary = await cdn.entity.query().where(primaryWhere).withPayload(true).fetch()
+
+  let legacy: { entities: Array<{ key: string; toJson: () => unknown }> } = { entities: [] }
+  try {
+    legacy = await cdn.entity.query().where(legacyWhere).withPayload(true).fetch()
+  } catch {
+    legacy = { entities: [] }
+  }
 
   const byKey = new Map<string, { key: string; toJson: () => unknown }>()
   for (const entity of primary.entities) byKey.set(entity.key, entity)

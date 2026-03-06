@@ -1,24 +1,121 @@
 let sdk = null;
 let client = null;
 let walletAddress = null;
+const activeBlobUrls = [];
 
 const DEFAULT_PHOTO = "https://via.placeholder.com/150";
+const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
+const ARKIV_CHAIN_ID = 60138453025;
+const ARKIV_SDK_VERSION = "0.6.2";
 
 const connectWalletBtn = document.getElementById("connect-wallet");
 const disconnectWalletBtn = document.getElementById("disconnect-wallet");
 const walletInfo = document.getElementById("wallet-info");
 const walletAddressEl = document.getElementById("wallet-address");
+const walletStatusEl = document.getElementById("wallet-status");
 const followersList = document.getElementById("followers-list");
+const followingListEl = document.getElementById("following-list");
+
+const profilePhotoFileEl = document.getElementById("profile-photo-file");
+const profileUploadStatusEl = document.getElementById("profile-upload-status");
+const profilePhotoRefEl = document.getElementById("profile-photo-ref");
+const postFileEl = document.getElementById("post-file");
+const postUploadStatusEl = document.getElementById("post-upload-status");
 
 async function loadSdk() {
   if (!sdk) {
-    sdk = await import("/dist/index.mjs");
+    const sdkCandidates = [
+      "/dist/index.mjs",
+      "../dist/index.mjs",
+      "./dist/index.mjs",
+    ];
+
+    let arbok = null;
+    let lastError = null;
+    for (const candidate of sdkCandidates) {
+      try {
+        arbok = await import(candidate);
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!arbok) {
+      const reason = lastError?.message || "No se pudo cargar el SDK";
+      throw new Error(
+        `No se pudo cargar dist/index.mjs. ` +
+        `Asegurate de ejecutar 'npm run build' en la raiz y servir el proyecto desde la raiz o usando demo/server.js. ` +
+        `Detalle: ${reason}`
+      );
+    }
+
+    sdk = {
+      createArbok: arbok.createArbok,
+      BaseClient: arbok.BaseClient,
+    };
+
+    const arkiv = await import(`https://esm.sh/@arkiv-network/sdk@${ARKIV_SDK_VERSION}`);
+    const chains = await import(`https://esm.sh/@arkiv-network/sdk@${ARKIV_SDK_VERSION}/chains`);
+    sdk.createPublicClient = arkiv.createPublicClient;
+    sdk.createWalletClient = arkiv.createWalletClient;
+    sdk.custom = arkiv.custom;
+    sdk.http = arkiv.http;
+    sdk.kaolin = chains.kaolin;
   }
   return sdk;
 }
 
 function providerOrNull() {
   return window.ethereum || window.web3?.currentProvider || null;
+}
+
+function setWalletStatus(message, tone = "info") {
+  if (!walletStatusEl) return;
+  if (!message) {
+    walletStatusEl.textContent = "";
+    walletStatusEl.classList.add("hidden");
+    walletStatusEl.dataset.tone = "";
+    return;
+  }
+
+  walletStatusEl.textContent = message;
+  walletStatusEl.dataset.tone = tone;
+  walletStatusEl.classList.remove("hidden");
+}
+
+async function ensureKaolinNetwork(provider) {
+  const chainIdHex = `0x${ARKIV_CHAIN_ID.toString(16)}`;
+  try {
+    await provider.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: chainIdHex }],
+    });
+    return;
+  } catch (error) {
+    const code = error?.code;
+    if (code !== 4902) throw error;
+  }
+
+  await provider.request({
+    method: "wallet_addEthereumChain",
+    params: [{
+      chainId: chainIdHex,
+      chainName: "Arkiv Kaolin",
+      rpcUrls: [ARKIV_RPC_URL],
+      nativeCurrency: {
+        name: "Test ETH",
+        symbol: "ETH",
+        decimals: 18,
+      },
+      blockExplorerUrls: ["https://explorer.kaolin.hoodi.arkiv.network/"],
+    }],
+  });
+
+  await provider.request({
+    method: "wallet_switchEthereumChain",
+    params: [{ chainId: chainIdHex }],
+  });
 }
 
 function deriveUuid(address) {
@@ -43,6 +140,191 @@ function safeMsg(error) {
   return error?.message || String(error);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry(task, options = {}) {
+  const {
+    attempts = 3,
+    delayMs = 900,
+    onRetry = null,
+  } = options;
+
+  let lastError = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await task();
+    } catch (error) {
+      lastError = error;
+      if (i < attempts) {
+        if (typeof onRetry === "function") onRetry(i, error);
+        await sleep(delayMs * i);
+      }
+    }
+  }
+  throw lastError;
+}
+
+function userErrorMsg(error, fallback = "Ocurrio un error inesperado.") {
+  const raw = safeMsg(error);
+
+  if (/User rejected|rejected the request|denied/i.test(raw)) {
+    return "Operacion cancelada en la wallet.";
+  }
+  if (/insufficient funds|intrinsic gas too low|gas required exceeds allowance|insufficient balance/i.test(raw)) {
+    return "La wallet no tiene fondos para gas en Kaolin. Carga test ETH en https://kaolin.hoodi.arkiv.network/faucet/ y reintenta.";
+  }
+  if (/Failed to fetch|NetworkError|fetch/i.test(raw)) {
+    return "No se pudo conectar a la red. Revisa RPC/internet y vuelve a intentar.";
+  }
+  if (/Request body:|URL:|arkiv_query|rpc/i.test(raw)) {
+    return "Fallo la consulta al RPC de Arkiv. Intenta nuevamente en unos segundos.";
+  }
+
+  if (!raw) return fallback;
+  return raw.length > 220 ? `${raw.slice(0, 220)}...` : raw;
+}
+
+function isRpcLikeError(error) {
+  const raw = safeMsg(error);
+  return /Request body:|URL:|arkiv_query|rpc|Failed to fetch|NetworkError|fetch/i.test(raw);
+}
+
+function isInsufficientFundsError(error) {
+  const raw = safeMsg(error);
+  return /insufficient funds|intrinsic gas too low|gas required exceeds allowance|insufficient balance/i.test(raw);
+}
+
+function resolvePhotoSrc(photo) {
+  if (typeof photo === "string" && /^https?:\/\//i.test(photo)) return photo;
+  return DEFAULT_PHOTO;
+}
+
+function setUploadStatus(el, text) {
+  if (!text) {
+    el.textContent = "";
+    el.classList.add("hidden");
+    return;
+  }
+  el.textContent = text;
+  el.classList.remove("hidden");
+}
+
+function mediaTypeFromMime(file) {
+  if (!file?.type) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  return "image";
+}
+
+function revokeBlobUrls() {
+  while (activeBlobUrls.length > 0) {
+    const url = activeBlobUrls.pop();
+    URL.revokeObjectURL(url);
+  }
+}
+
+function createMediaNode(mediaItem = {}, index = 0) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "post-media";
+
+  const label = document.createElement("small");
+  const mediaType = mediaItem.type || "file";
+  label.append(`Media (${mediaType}): `);
+  const code = document.createElement("code");
+  code.textContent = String(mediaItem.url || "");
+  label.appendChild(code);
+
+  const previewBtn = document.createElement("button");
+  previewBtn.className = "btn btn-secondary preview-media-btn";
+  previewBtn.type = "button";
+  previewBtn.textContent = "Ver archivo";
+  previewBtn.dataset.key = String(mediaItem.url || "");
+  previewBtn.dataset.type = mediaType;
+  previewBtn.dataset.idx = String(index);
+
+  const target = document.createElement("div");
+  target.className = "media-preview-target";
+
+  previewBtn.addEventListener("click", () => loadMediaPreview(previewBtn, target));
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(previewBtn);
+  wrapper.appendChild(target);
+
+  return wrapper;
+}
+
+async function loadMediaPreview(button, target) {
+  if (!client) return;
+  const manifestKey = button.dataset.key;
+  const mediaType = button.dataset.type || "image";
+  if (!target || !manifestKey) return;
+
+  try {
+    button.disabled = true;
+    button.textContent = "Cargando...";
+    const { data, filename, mimeType } = await client.cdn.file.download(manifestKey);
+    const blob = new Blob([data], { type: mimeType || "application/octet-stream" });
+    const blobUrl = URL.createObjectURL(blob);
+    activeBlobUrls.push(blobUrl);
+
+    target.textContent = "";
+
+    if ((mimeType || "").startsWith("image/") || mediaType === "image") {
+      const img = document.createElement("img");
+      img.className = "media-preview";
+      img.src = blobUrl;
+      img.alt = filename || manifestKey;
+      target.appendChild(img);
+    } else if ((mimeType || "").startsWith("video/") || mediaType === "video") {
+      const video = document.createElement("video");
+      video.className = "media-preview";
+      video.controls = true;
+      video.src = blobUrl;
+      target.appendChild(video);
+    } else if ((mimeType || "").startsWith("audio/") || mediaType === "audio") {
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = blobUrl;
+      target.appendChild(audio);
+    } else {
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename || manifestKey;
+      link.textContent = "Descargar archivo";
+      target.appendChild(link);
+    }
+
+    button.textContent = "Recargar preview";
+    button.disabled = false;
+  } catch (error) {
+    console.error(error);
+    target.textContent = "No se pudo cargar el archivo desde Arkiv.";
+    button.textContent = "Reintentar";
+    button.disabled = false;
+  }
+}
+
+async function uploadFileToArkiv(file, statusEl) {
+  if (!client) throw new Error("Cliente no inicializado");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  setUploadStatus(statusEl, "Subiendo 0%...");
+
+  const result = await client.cdn.file.upload(bytes, {
+    filename: file.name,
+    mimeType: file.type || "application/octet-stream",
+    onProgress: (progress) => {
+      const pct = Math.round((progress?.ratio || 0) * 100);
+      setUploadStatus(statusEl, `Subiendo ${pct}%...`);
+    },
+  });
+
+  setUploadStatus(statusEl, `Subido: ${result.manifestKey}`);
+  return result.manifestKey;
+}
+
 function showProfile(profile) {
   const displayName = profile.displayName || profile.uuid;
   const bio = profile.bio || "";
@@ -50,83 +332,266 @@ function showProfile(profile) {
 
   document.getElementById("display-name").value = displayName;
   document.getElementById("bio").value = bio;
-  document.getElementById("photo-url").value = photo;
+  document.getElementById("photo-url").value = /^https?:\/\//i.test(photo) ? photo : "";
 
-  document.getElementById("profile-photo").src = photo;
+  document.getElementById("profile-photo").src = resolvePhotoSrc(photo);
   document.getElementById("profile-name").textContent = displayName;
   document.getElementById("profile-bio").textContent = bio;
+
+  if (photo && !/^https?:\/\//i.test(photo)) {
+    profilePhotoRefEl.textContent = `Foto en Arkiv: ${photo}`;
+    profilePhotoRefEl.classList.remove("hidden");
+  } else {
+    profilePhotoRefEl.textContent = "";
+    profilePhotoRefEl.classList.add("hidden");
+  }
+
   document.getElementById("profile-display").classList.remove("hidden");
 }
 
 function renderPosts(posts) {
   const postsList = document.getElementById("posts-list");
-  postsList.innerHTML = "";
+  revokeBlobUrls();
+  postsList.textContent = "";
+
+  if (!Array.isArray(posts) || posts.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "Todavia no hay posts.";
+    postsList.appendChild(empty);
+    return;
+  }
 
   for (const post of posts) {
     const item = document.createElement("div");
     item.className = "post-item";
-    item.innerHTML = `
-      <p>${post.content}</p>
-      <small>${new Date(post.createdAt).toLocaleString()}</small>
-    `;
+
+    const author = document.createElement("div");
+    author.className = "post-author";
+    author.textContent = post.authorUuid || "usuario";
+    item.appendChild(author);
+
+    const content = document.createElement("p");
+    content.textContent = post.content || "(sin texto)";
+    item.appendChild(content);
+
+    if (Array.isArray(post.media)) {
+      post.media.forEach((mediaItem, index) => {
+        item.appendChild(createMediaNode(mediaItem, index));
+      });
+    }
+
+    const date = document.createElement("small");
+    date.textContent = new Date(post.createdAt).toLocaleString();
+    item.appendChild(date);
+
     postsList.appendChild(item);
   }
 }
 
-async function refreshMyPosts() {
+async function refreshFeed() {
   if (!client) return;
-  const feed = client.feed();
-  const posts = await feed.getUserPosts({ limit: 50 });
+  const following = await client.social().getFollowing({ limit: 100 });
+  const uuids = new Set([client.uuid]);
+  for (const relation of following) {
+    if (relation?.toUuid) uuids.add(relation.toUuid);
+    if (relation?.targetUuid) uuids.add(relation.targetUuid);
+  }
+
+  const posts = await client.feed().getFeed(Array.from(uuids), { limit: 60, offset: 0 });
   renderPosts(posts);
 }
 
-async function refreshFollowerCounts() {
+function renderFollowingList(items = []) {
+  if (!followingListEl) return;
+  followingListEl.textContent = "";
+
+  if (!Array.isArray(items) || items.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "following-item";
+    empty.textContent = "Aún no sigues a nadie.";
+    followingListEl.appendChild(empty);
+    return;
+  }
+
+  const unique = new Set();
+  for (const relation of items) {
+    const value = relation?.toUuid || relation?.targetUuid;
+    if (!value || unique.has(value)) continue;
+    unique.add(value);
+
+    const row = document.createElement("div");
+    row.className = "following-item";
+    row.textContent = value;
+    followingListEl.appendChild(row);
+  }
+}
+
+async function refreshSocialSnapshot() {
   if (!client) return;
-  const counts = await client.social().getFollowerCounts();
-  followersList.innerHTML = `
-    <p><strong>Siguiendo:</strong> ${counts.following}</p>
-    <p><strong>Seguidores:</strong> ${counts.followers}</p>
-  `;
+  const [counts, following] = await Promise.all([
+    client.social().getFollowerCounts(),
+    client.social().getFollowing({ limit: 100 }),
+  ]);
+
+  followersList.textContent = "";
+
+  const followingCount = document.createElement("p");
+  const followingStrong = document.createElement("strong");
+  followingStrong.textContent = "Siguiendo:";
+  followingCount.appendChild(followingStrong);
+  followingCount.append(` ${counts.following}`);
+
+  const followersCount = document.createElement("p");
+  const followersStrong = document.createElement("strong");
+  followersStrong.textContent = "Seguidores:";
+  followersCount.appendChild(followersStrong);
+  followersCount.append(` ${counts.followers}`);
+
+  followersList.appendChild(followingCount);
+  followersList.appendChild(followersCount);
+  renderFollowingList(following);
+}
+
+async function refreshFollowerCounts() {
+  await refreshSocialSnapshot();
 }
 
 connectWalletBtn.addEventListener("click", async () => {
   try {
+    connectWalletBtn.disabled = true;
+    setWalletStatus("Conectando wallet...", "info");
+
     const provider = providerOrNull();
     if (!provider) {
       alert("MetaMask no detectado.");
+      setWalletStatus("MetaMask no detectado.", "error");
+      connectWalletBtn.disabled = false;
       return;
     }
+
+    setWalletStatus("Verificando red Arkiv Kaolin...", "info");
+    await ensureKaolinNetwork(provider);
 
     const accounts = await provider.request({ method: "eth_requestAccounts" });
     walletAddress = accounts[0];
     walletAddressEl.textContent = `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
 
-    const { createArbok, BaseClient, PublicClient, WalletClient, custom } = await loadSdk();
-    const cdn = createArbok({
-      publicClient: new PublicClient(),
-      wallets: new WalletClient({ transport: custom(provider) }),
-    });
+    const {
+      createArbok,
+      BaseClient,
+      createPublicClient,
+      createWalletClient,
+      custom,
+      http,
+      kaolin,
+    } = await loadSdk();
 
-    client = new BaseClient({
+    const walletClient = createWalletClient({
+      transport: custom(provider),
+      account: walletAddress,
+      chain: kaolin,
+    });
+    const makeClient = (publicTransport) => new BaseClient({
       uuid: deriveUuid(walletAddress),
       wallet: walletAddress,
       photo: DEFAULT_PHOTO,
-      cdn,
+      cdn: createArbok({
+        publicClient: createPublicClient({ transport: publicTransport, chain: kaolin }),
+        wallets: walletClient,
+      }),
     });
 
-    const { profile } = await client.getOrCreate();
+    client = makeClient(http(ARKIV_RPC_URL));
+    setWalletStatus("Cargando perfil on-chain...", "info");
+
+    let profileResult = null;
+    let profileChecked = false;
+    try {
+      profileResult = await withRetry(
+        () => client.get(),
+        {
+          attempts: 4,
+          delayMs: 1000,
+          onRetry: (attempt) => {
+            setWalletStatus(`RPC inestable, reintentando lectura (${attempt + 1}/4)...`, "warn");
+          },
+        },
+      );
+      profileChecked = true;
+    } catch (firstError) {
+      if (!isRpcLikeError(firstError)) throw firstError;
+      setWalletStatus("RPC HTTP fallo, probando lectura via MetaMask...", "warn");
+      client = makeClient(custom(provider));
+      profileResult = await withRetry(
+        () => client.get(),
+        {
+          attempts: 3,
+          delayMs: 1000,
+          onRetry: (attempt) => {
+            setWalletStatus(`Reintentando lectura por MetaMask (${attempt + 1}/3)...`, "warn");
+          },
+        },
+      );
+      profileChecked = true;
+    }
+
+    if (profileChecked && !profileResult) {
+      setWalletStatus("Perfil no existe. Creando en cadena...", "info");
+      try {
+        profileResult = await withRetry(
+          () => client.getOrCreate(),
+          {
+            attempts: 2,
+            delayMs: 900,
+            onRetry: (attempt) => {
+              setWalletStatus(`Reintentando creacion (${attempt + 1}/2)...`, "warn");
+            },
+          },
+        );
+      } catch (createError) {
+        if (isInsufficientFundsError(createError)) {
+          throw new Error("Wallet sin gas en Kaolin. Usa faucet: https://kaolin.hoodi.arkiv.network/faucet/");
+        }
+        throw createError;
+      }
+    }
+
+    if (!profileResult) {
+      throw new Error("No se pudo obtener ni crear el perfil en Arkiv.");
+    }
+
+    const { profile } = profileResult;
     showProfile(profile);
-    await refreshMyPosts();
-    await refreshFollowerCounts();
+
+    await withRetry(
+      async () => {
+        await refreshSocialSnapshot();
+        await refreshFeed();
+      },
+      {
+        attempts: 3,
+        delayMs: 700,
+      },
+    );
+
     setWalletUi(true);
+    setWalletStatus("Conectado a Arkiv Kaolin.", "success");
   } catch (error) {
     console.error(error);
     const message = safeMsg(error);
-    if (message.includes("Failed to fetch dynamically imported module")) {
+    if (
+      message.includes("Failed to fetch dynamically imported module")
+      || message.includes("No se pudo cargar dist/index.mjs")
+    ) {
       alert("No se encontro /dist/index.mjs. Ejecuta npm run build en la raiz del proyecto.");
+      setWalletStatus("Falta build local: ejecuta npm run build.", "error");
       return;
     }
-    alert("Error al conectar: " + message);
+    const readable = userErrorMsg(error);
+    alert("Error al conectar: " + readable);
+    setWalletStatus(`No se pudo conectar: ${readable}`, "error");
+  } finally {
+    connectWalletBtn.disabled = false;
   }
 });
 
@@ -137,6 +602,12 @@ disconnectWalletBtn.addEventListener("click", () => {
   document.getElementById("profile-display").classList.add("hidden");
   document.getElementById("posts-list").innerHTML = "";
   followersList.innerHTML = "";
+  profilePhotoFileEl.value = "";
+  postFileEl.value = "";
+  revokeBlobUrls();
+  setUploadStatus(profileUploadStatusEl, "");
+  setUploadStatus(postUploadStatusEl, "");
+  setWalletStatus("Desconectado.", "warn");
   setWalletUi(false);
 });
 
@@ -146,14 +617,19 @@ document.getElementById("save-profile").addEventListener("click", async () => {
     const displayName = document.getElementById("display-name").value.trim();
     const bio = document.getElementById("bio").value.trim();
     const photoInput = document.getElementById("photo-url").value.trim();
-    const photo = photoInput || DEFAULT_PHOTO;
+
+    let photo = photoInput || DEFAULT_PHOTO;
+    const photoFile = profilePhotoFileEl.files?.[0];
+    if (photoFile) {
+      photo = await uploadFileToArkiv(photoFile, profileUploadStatusEl);
+    }
 
     const { profile } = await client.update({ displayName, bio, photo });
     showProfile(profile);
     alert("Perfil guardado.");
   } catch (error) {
     console.error(error);
-    alert("No se pudo guardar el perfil: " + safeMsg(error));
+    alert("No se pudo guardar el perfil: " + userErrorMsg(error));
   }
 });
 
@@ -163,18 +639,31 @@ document.getElementById("edit-profile").addEventListener("click", () => {
 
 document.getElementById("create-post").addEventListener("click", async () => {
   if (!client) return;
+
   const contentEl = document.getElementById("post-content");
   const content = contentEl.value.trim();
-  if (!content) return;
+  const postFile = postFileEl.files?.[0];
+  if (!content && !postFile) return;
 
   try {
-    await client.feed().createPost({ content });
+    let media;
+    if (postFile) {
+      const manifestKey = await uploadFileToArkiv(postFile, postUploadStatusEl);
+      media = [{
+        url: manifestKey,
+        type: mediaTypeFromMime(postFile),
+        alt: postFile.name,
+      }];
+    }
+
+    await client.feed().createPost({ content, media });
     contentEl.value = "";
-    await refreshMyPosts();
+    postFileEl.value = "";
+    await refreshFeed();
     alert("Post publicado.");
   } catch (error) {
     console.error(error);
-    alert("No se pudo publicar: " + safeMsg(error));
+    alert("No se pudo publicar: " + userErrorMsg(error));
   }
 });
 
@@ -187,13 +676,28 @@ document.getElementById("follow-btn").addEventListener("click", async () => {
   try {
     await client.social().follow(targetUuid);
     uuidEl.value = "";
-    await refreshFollowerCounts();
+    await refreshSocialSnapshot();
+    await refreshFeed();
     alert(`Ahora sigues a ${targetUuid}.`);
   } catch (error) {
     console.error(error);
-    alert("No se pudo seguir al usuario: " + safeMsg(error));
+    alert("No se pudo seguir al usuario: " + userErrorMsg(error));
   }
 });
+
+const refreshFeedBtn = document.getElementById("refresh-feed");
+if (refreshFeedBtn) {
+  refreshFeedBtn.addEventListener("click", async () => {
+    if (!client) return;
+    try {
+      await refreshSocialSnapshot();
+      await refreshFeed();
+    } catch (error) {
+      console.error(error);
+      alert("No se pudo actualizar el feed: " + userErrorMsg(error));
+    }
+  });
+}
 
 window.addEventListener("load", () => {
   setTimeout(() => {

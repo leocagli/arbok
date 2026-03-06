@@ -7,6 +7,10 @@ import {
   ATTR_WALLET,
   DEFAULT_EXPIRY_SECONDS,
   EXTENSION_TYPE,
+  LEGACY_ARBOK_ATTR_NAMESPACE,
+  LEGACY_ARBOK_ATTR_TYPE,
+  LEGACY_ARBOK_ATTR_UUID,
+  LEGACY_ARBOK_ATTR_WALLET,
   LEGACY_ATTR_NAMESPACE,
   LEGACY_ATTR_TYPE,
   LEGACY_ATTR_UUID,
@@ -45,9 +49,29 @@ export class ExtensionClient<T extends Record<string, unknown>>
       .withAttributes(true)
       .fetch()
 
-    const legacyResult = result.entities.length > 0
-      ? result
-      : await this.cdn.entity
+    let entity = result.entities[0]
+    if (!entity) {
+      try {
+        const dottedResult = await this.cdn.entity
+          .query()
+          .where([
+            eq(LEGACY_ARBOK_ATTR_TYPE, EXTENSION_TYPE),
+            eq(LEGACY_ARBOK_ATTR_UUID, this.uuid),
+            eq(LEGACY_ARBOK_ATTR_WALLET, this.wallet),
+            eq(LEGACY_ARBOK_ATTR_NAMESPACE, this.namespace),
+          ])
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        entity = dottedResult.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
+
+    if (!entity) {
+      try {
+        const asideResult = await this.cdn.entity
           .query()
           .where([
             eq(LEGACY_ATTR_TYPE, EXTENSION_TYPE),
@@ -58,8 +82,12 @@ export class ExtensionClient<T extends Record<string, unknown>>
           .withPayload(true)
           .withAttributes(true)
           .fetch()
+        entity = asideResult.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
 
-    const entity = legacyResult.entities[0]
     if (!entity) return null
 
     const extension = entity.toJson() as ExtensionData<T>
@@ -131,6 +159,10 @@ function buildExtensionAttributes(
     { key: ATTR_UUID, value: uuid },
     { key: ATTR_WALLET, value: wallet },
     { key: ATTR_NAMESPACE, value: namespace },
+    { key: LEGACY_ARBOK_ATTR_TYPE, value: EXTENSION_TYPE },
+    { key: LEGACY_ARBOK_ATTR_UUID, value: uuid },
+    { key: LEGACY_ARBOK_ATTR_WALLET, value: wallet },
+    { key: LEGACY_ARBOK_ATTR_NAMESPACE, value: namespace },
     { key: LEGACY_ATTR_TYPE, value: EXTENSION_TYPE },
     { key: LEGACY_ATTR_UUID, value: uuid },
     { key: LEGACY_ATTR_WALLET, value: wallet },
