@@ -89,6 +89,31 @@
                 <h2>Feed social</h2>
                 <div id="posts-list">Conecta tu wallet para ver publicaciones de las cuentas que sigues.</div>
             </section>
+
+            <section id="jobs-section" class="card hidden">
+                <h2>💼 Job Board</h2>
+                
+                <div class="job-form">
+                    <h3>Publicar Trabajo</h3>
+                    <input type="text" id="job-title" placeholder="Título del trabajo">
+                    <input type="text" id="job-company" placeholder="Empresa">
+                    <input type="text" id="job-salary" placeholder="Salario (ej: 80-120k USD)">
+                    <select id="job-type">
+                        <option value="Remote">Remote</option>
+                        <option value="Hybrid">Hybrid</option>
+                        <option value="On-site">On-site</option>
+                    </select>
+                    <textarea id="job-description" placeholder="Descripción del trabajo"></textarea>
+                    <label class="file-label">
+                        Adjuntar archivo (CV, portfolio, etc)
+                        <input type="file" id="job-file" accept="image/*,video/*,application/pdf">
+                    </label>
+                    <p id="job-upload-status" class="upload-status hidden"></p>
+                    <button id="post-job" class="btn btn-primary btn-full">Publicar Trabajo</button>
+                </div>
+
+                <div class="jobs-list" id="jobs-list"></div>
+            </section>
         </section>
     </main>
 

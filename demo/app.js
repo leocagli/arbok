@@ -1,3 +1,28 @@
+// Mock data
+const mockUsers = [
+  { uuid: 'alice-2024', wallet: '0x1234...5678', displayName: 'Alice', bio: 'Builder en Arkiv', photo: 'https://i.pravatar.cc/150?img=1' },
+  { uuid: 'bob-dev', wallet: '0xabcd...ef01', displayName: 'Bob', bio: 'Web3 developer', photo: 'https://i.pravatar.cc/150?img=2' },
+  { uuid: 'carol-crypto', wallet: '0x9876...4321', displayName: 'Carol', bio: 'Crypto enthusiast', photo: 'https://i.pravatar.cc/150?img=3' },
+  { uuid: 'dave-nft', wallet: '0xfedc...ba98', displayName: 'Dave', bio: 'NFT artist', photo: 'https://i.pravatar.cc/150?img=4' },
+];
+
+const mockPosts = [
+  { authorUuid: 'alice-2024', content: 'Hola desde Arbok! 🐍 Construyendo el futuro descentralizado', createdAt: Date.now() - 3600000 },
+  { authorUuid: 'bob-dev', content: 'Acabo de deployar mi primer smart contract en Arkiv 🚀', createdAt: Date.now() - 7200000 },
+  { authorUuid: 'carol-crypto', content: 'Web3 es el futuro. La descentralización nos dará libertad', createdAt: Date.now() - 10800000 },
+  { authorUuid: 'dave-nft', content: 'Nueva colección de NFTs disponible! 🎨', createdAt: Date.now() - 14400000 },
+  { authorUuid: 'alice-2024', content: 'Trabajando en la integración de Arbok con otras chains', createdAt: Date.now() - 18000000 },
+  { authorUuid: 'bob-dev', content: 'Alguien más está experimentando con social graphs on-chain?', createdAt: Date.now() - 21600000 },
+];
+
+const mockJobs = [
+  { id: 1, title: 'Smart Contract Developer', company: 'Arkiv Labs', salary: '80-120k USD', type: 'Remote', description: 'Buscamos dev Solidity con experiencia en DeFi', createdAt: Date.now() - 86400000 },
+  { id: 2, title: 'Frontend Web3 Engineer', company: 'DeFi Protocol', salary: '70-100k USD', type: 'Remote', description: 'React + ethers.js para dApp', createdAt: Date.now() - 172800000 },
+  { id: 3, title: 'Blockchain Architect', company: 'Crypto Startup', salary: '120-180k USD', type: 'Hybrid', description: 'Diseño de arquitectura blockchain escalable', createdAt: Date.now() - 259200000 },
+];
+
+let mockFollowing = ['alice-2024', 'bob-dev'];
+
 let sdk = null;
 let client = null;
 let walletAddress = null;
@@ -5,7 +30,7 @@ let directWalletClient = null;
 let directPublicClient = null;
 const activeBlobUrls = [];
 
-const DEFAULT_PHOTO = "https://via.placeholder.com/150";
+const DEFAULT_PHOTO = "https://i.pravatar.cc/150?img=0";
 const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de las cuentas que sigues.";
 const ARKIV_NETWORK_NAME = "Arkiv Kaolin";
 const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
@@ -139,9 +164,10 @@ function deriveLegacyUuid(address) {
 }
 
 function showSections(visible) {
-  const ids = ["profile-section", "post-section", "feed-section", "social-section"];
+  const ids = ["profile-section", "post-section", "feed-section", "social-section", "jobs-section"];
   for (const id of ids) {
-    document.getElementById(id).classList.toggle("hidden", !visible);
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle("hidden", !visible);
   }
 }
 
@@ -347,50 +373,25 @@ function buildRescueUuid(wallet) {
 }
 
 async function createProfileCompat(baseClient, data = {}) {
+  // MOCK - simular creacion exitosa
   const now = Date.now();
   const normalizedWallet = (baseClient.wallet || "").toLowerCase();
   const profile = {
     uuid: data.uuid || baseClient.uuid,
     wallet: data.wallet || normalizedWallet,
-    photo: data.photo || DEFAULT_PHOTO,
-    ...(data.displayName != null ? { displayName: data.displayName } : {}),
-    ...(data.bio != null ? { bio: data.bio } : {}),
+    photo: data.photo || "https://i.imgur.com/placeholder.png",
     createdAt: now,
     updatedAt: now,
   };
-
-  const payload = new TextEncoder().encode(JSON.stringify(profile));
-  const expiryAttempts = [
-    PROFILE_EXPIRY_SECONDS,
-    6 * 60 * 60,
-    60 * 60,
-  ];
-
-  let lastError = null;
-  for (const expiresIn of expiryAttempts) {
-    try {
-      const createArgs = {
-        payload,
-        contentType: "application/json",
-        attributes: [
-          { key: "arbok_type", value: "profile" },
-          { key: "arbok_uuid", value: String(profile.uuid || baseClient.uuid) },
-          { key: "arbok_wallet", value: normalizedWallet },
-        ],
-        expiresIn,
-      };
-
-      const { entityKey } = directWalletClient?.createEntity
-        ? await directWalletClient.createEntity(createArgs)
-        : await baseClient.cdn.entity.create(createArgs);
-
-      return { entityKey, profile, expiresIn };
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError ?? new Error("Compat profile creation failed");
+  if (data.displayName) profile.displayName = data.displayName;
+  if (data.bio) profile.bio = data.bio;
+  
+  console.log('[MOCK] Perfil creado:', profile);
+  return { 
+    entityKey: 'mock-profile-' + Date.now(), 
+    profile,
+    expiresIn: 3600 
+  };
 }
 
 function isLikelyProfileEntity(entity, connectedWallet) {
@@ -453,97 +454,43 @@ async function findOwnedProfileCompat(baseClient, rawConnectedWallet) {
 }
 
 async function updateProfileCompat(baseClient, data = {}) {
-  const rawConnectedWallet = String(data.connectedWallet || "");
-  const connectedWallet = rawConnectedWallet.toLowerCase();
-
-  let existing = await findOwnedProfileCompat(baseClient, rawConnectedWallet);
-
-  if (!existing) {
-    existing = await baseClient.get();
-  }
-
-  if (!existing) {
-    return createProfileCompat(baseClient, data);
-  }
-
+  // MOCK - simular actualizacion exitosa
   const now = Date.now();
-  const current = existing.profile || {};
-  const uuid = current.uuid || baseClient.uuid;
-  const wallet = (connectedWallet || current.wallet || baseClient.wallet || "").toLowerCase();
-  const updated = {
-    ...current,
-    ...data,
-    uuid,
-    wallet,
-    createdAt: current.createdAt ?? now,
+  const profile = {
+    uuid: baseClient.uuid,
+    wallet: (data.connectedWallet || baseClient.wallet).toLowerCase(),
+    photo: data.photo || "https://i.imgur.com/placeholder.png",
+    displayName: data.displayName || baseClient.uuid,
+    bio: data.bio || "",
+    createdAt: now - 10000,
     updatedAt: now,
   };
-
-  const payload = new TextEncoder().encode(JSON.stringify(updated));
-  try {
-    const entity = await baseClient.cdn.entity.get(existing.entityKey);
-    const owner = (entity?.owner || "").toLowerCase();
-    if (connectedWallet && owner && owner !== connectedWallet) {
-      return createProfileCompat(baseClient, {
-        ...data,
-        wallet: connectedWallet,
-        uuid: buildRescueUuid(connectedWallet),
-      });
-    }
-  } catch {
-  }
-
-  const updateArgs = {
-    entityKey: existing.entityKey,
-    payload,
-    contentType: "application/json",
-    attributes: [
-      { key: "arbok_type", value: "profile" },
-      { key: "arbok_uuid", value: uuid },
-      { key: "arbok_wallet", value: wallet },
-    ],
-    expiresIn: PROFILE_EXPIRY_SECONDS,
+  
+  console.log('[MOCK] Perfil actualizado:', profile);
+  return { 
+    entityKey: 'mock-profile-' + baseClient.uuid, 
+    profile 
   };
-
-  if (directWalletClient?.updateEntity) {
-    await directWalletClient.updateEntity(updateArgs);
-  } else {
-    await baseClient.cdn.entity.update(updateArgs);
-  }
-
-  return { entityKey: existing.entityKey, profile: updated };
 }
 
 async function createPostCompat(baseClient, options = {}) {
+  // MOCK - simular post exitoso
   const now = Date.now();
-  const wallet = String(baseClient.wallet || "").toLowerCase();
   const post = {
     authorUuid: String(baseClient.uuid || ""),
-    authorWallet: wallet,
+    authorWallet: String(baseClient.wallet || "").toLowerCase(),
     content: String(options.content || ""),
     createdAt: now,
     updatedAt: now,
     status: "active",
     ...(Array.isArray(options.media) ? { media: options.media } : {}),
   };
-
-  const payload = new TextEncoder().encode(JSON.stringify(post));
-  const createArgs = {
-    payload,
-    contentType: "application/json",
-    attributes: [
-      { key: "arbok_type", value: "arbok.social.post" },
-      { key: "arbok_uuid", value: String(baseClient.uuid || "") },
-      { key: "arbok_wallet", value: wallet },
-    ],
-    expiresIn: POST_EXPIRY_SECONDS,
+  
+  console.log('[MOCK] Post creado:', post);
+  return { 
+    entityKey: 'mock-post-' + Date.now(), 
+    ...post 
   };
-
-  const { entityKey } = directWalletClient?.createEntity
-    ? await directWalletClient.createEntity(createArgs)
-    : await baseClient.cdn.entity.create(createArgs);
-
-  return { entityKey, ...post };
 }
 
 function resolvePhotoSrc(photo) {
@@ -740,14 +687,13 @@ function renderPosts(posts) {
 
 async function refreshFeed() {
   if (!client) return;
-  const following = await client.social().getFollowing({ limit: 100 });
-  const uuids = new Set([client.uuid]);
-  for (const relation of following) {
-    if (relation?.toUuid) uuids.add(relation.toUuid);
-    if (relation?.targetUuid) uuids.add(relation.targetUuid);
-  }
-
-  const posts = await client.feed().getFeed(Array.from(uuids), { limit: 60, offset: 0 });
+  
+  // MOCK - mostrar posts de usuarios seguidos
+  const posts = mockPosts.map(p => ({
+    ...p,
+    authorUuid: mockUsers.find(u => u.uuid === p.authorUuid)?.displayName || p.authorUuid
+  }));
+  
   renderPosts(posts);
 }
 
@@ -804,10 +750,14 @@ function renderDisconnectedSnapshot() {
 
 async function refreshSocialSnapshot() {
   if (!client) return;
-  const [counts, following] = await Promise.all([
-    client.social().getFollowerCounts(),
-    client.social().getFollowing({ limit: 100 }),
-  ]);
+  
+  // MOCK - mostrar contadores
+  const counts = {
+    following: mockFollowing.length,
+    followers: Math.floor(Math.random() * 10) + 5
+  };
+  
+  const following = mockFollowing.map(uuid => ({ toUuid: uuid }));
 
   followersList.textContent = "";
 
@@ -1223,15 +1173,14 @@ document.getElementById("create-post").addEventListener("click", async () => {
       }];
     }
 
-    try {
-      await client.feed().createPost({ content, media });
-    } catch (postError) {
-      if (!isTransactionFailedError(postError)) throw postError;
-      const revertDetails = extractErrorDetails(postError);
-      console.warn("[Arbok][PostCreateError]", revertDetails);
-      await createPostCompat(client, { content, media });
-      setWalletStatus(`Post publicado con modo compatibilidad (ttl=${POST_EXPIRY_SECONDS}s).`, "warn");
-    }
+    // MOCK - agregar post a la lista
+    const newPost = {
+      authorUuid: client.uuid,
+      content,
+      createdAt: Date.now(),
+      media
+    };
+    mockPosts.unshift(newPost);
 
     contentEl.value = "";
     postFileEl.value = "";
@@ -1251,7 +1200,11 @@ document.getElementById("follow-btn").addEventListener("click", async () => {
   if (!targetUuid) return;
 
   try {
-    await client.social().follow(targetUuid);
+    // MOCK - agregar a lista de seguidos
+    if (!mockFollowing.includes(targetUuid)) {
+      mockFollowing.push(targetUuid);
+    }
+    
     uuidEl.value = "";
     await refreshSocialSnapshot();
     await refreshFeed();
@@ -1285,3 +1238,76 @@ window.addEventListener("load", () => {
     }
   }, 1000);
 });
+
+// Job Board
+function renderJobs() {
+  const jobsList = document.getElementById('jobs-list');
+  if (!jobsList) return;
+  jobsList.textContent = '';
+  
+  mockJobs.forEach(job => {
+    const item = document.createElement('div');
+    item.className = 'job-item';
+    item.innerHTML = `
+      <h3>${job.title}</h3>
+      <p><strong>${job.company}</strong> | ${job.type} | ${job.salary}</p>
+      <p>${job.description}</p>
+      <small>${new Date(job.createdAt).toLocaleDateString()}</small>
+    `;
+    jobsList.appendChild(item);
+  });
+}
+
+const postJobBtn = document.getElementById('post-job');
+if (postJobBtn) {
+  postJobBtn.addEventListener('click', async () => {
+  if (!client) return;
+  
+  const title = document.getElementById('job-title').value.trim();
+  const company = document.getElementById('job-company').value.trim();
+  const salary = document.getElementById('job-salary').value.trim();
+  const type = document.getElementById('job-type').value;
+  const description = document.getElementById('job-description').value.trim();
+  const jobFile = document.getElementById('job-file').files?.[0];
+  
+  if (!title || !company) {
+    alert('Título y empresa son requeridos');
+    return;
+  }
+  
+  try {
+    let attachment;
+    if (jobFile) {
+      const statusEl = document.getElementById('job-upload-status');
+      attachment = await uploadFileToArkiv(jobFile, statusEl);
+    }
+    
+    const newJob = {
+      id: Date.now(),
+      title,
+      company,
+      salary,
+      type,
+      description,
+      attachment,
+      createdAt: Date.now()
+    };
+    
+    mockJobs.unshift(newJob);
+    renderJobs();
+    
+    document.getElementById('job-title').value = '';
+    document.getElementById('job-company').value = '';
+    document.getElementById('job-salary').value = '';
+    document.getElementById('job-description').value = '';
+    document.getElementById('job-file').value = '';
+    
+    alert('Trabajo publicado!');
+  } catch (error) {
+    console.error(error);
+    alert('Error al publicar trabajo: ' + userErrorMsg(error));
+  }
+  });
+}
+
+renderJobs();
