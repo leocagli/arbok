@@ -376,7 +376,41 @@ async function createProfileCompat(baseClient, data = {}) {
 }
 
 async function updateProfileCompat(baseClient, data = {}) {
-  const existing = await baseClient.get();
+  const connectedWallet = (data.connectedWallet || "").toLowerCase();
+
+  let existing = null;
+  if (connectedWallet) {
+    try {
+      const ownedResult = await baseClient.cdn.entity
+        .query()
+        .ownedBy(connectedWallet)
+        .withPayload(true)
+        .withAttributes(true)
+        .fetch();
+
+      const ownedEntity = (ownedResult.entities || []).find((entity) => {
+        try {
+          const json = entity.toJson();
+          return json && (json.wallet || "").toLowerCase() === connectedWallet;
+        } catch {
+          return false;
+        }
+      });
+      if (ownedEntity) {
+        existing = {
+          entityKey: ownedEntity.key,
+          profile: ownedEntity.toJson(),
+        };
+      }
+    } catch {
+      existing = null;
+    }
+  }
+
+  if (!existing) {
+    existing = await baseClient.get();
+  }
+
   if (!existing) {
     return createProfileCompat(baseClient, data);
   }
@@ -384,7 +418,7 @@ async function updateProfileCompat(baseClient, data = {}) {
   const now = Date.now();
   const current = existing.profile || {};
   const uuid = current.uuid || baseClient.uuid;
-  const wallet = (current.wallet || baseClient.wallet || "").toLowerCase();
+  const wallet = (connectedWallet || current.wallet || baseClient.wallet || "").toLowerCase();
   const updated = {
     ...current,
     ...data,
@@ -395,6 +429,15 @@ async function updateProfileCompat(baseClient, data = {}) {
   };
 
   const payload = new TextEncoder().encode(JSON.stringify(updated));
+  try {
+    const entity = await baseClient.cdn.entity.get(existing.entityKey);
+    const owner = (entity?.owner || "").toLowerCase();
+    if (connectedWallet && owner && owner !== connectedWallet) {
+      return createProfileCompat(baseClient, { ...data, wallet: connectedWallet, uuid: baseClient.uuid });
+    }
+  } catch {
+  }
+
   await baseClient.cdn.entity.update({
     entityKey: existing.entityKey,
     payload,
@@ -1039,7 +1082,12 @@ document.getElementById("save-profile").addEventListener("click", async () => {
       updateResult = await client.update({ displayName, bio, photo });
     } catch (updateError) {
       if (!isTransactionFailedError(updateError)) throw updateError;
-      updateResult = await updateProfileCompat(client, { displayName, bio, photo });
+      updateResult = await updateProfileCompat(client, {
+        displayName,
+        bio,
+        photo,
+        connectedWallet: walletAddress,
+      });
       setWalletStatus("Perfil guardado con modo compatibilidad.", "warn");
     }
 
