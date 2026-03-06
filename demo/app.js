@@ -4,6 +4,7 @@ let walletAddress = null;
 const activeBlobUrls = [];
 
 const DEFAULT_PHOTO = "https://via.placeholder.com/150";
+const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de las cuentas que sigues.";
 const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
 const ARKIV_CHAIN_ID = 60138453025;
 const ARKIV_SDK_VERSION = "0.6.2";
@@ -426,6 +427,32 @@ function renderFollowingList(items = []) {
   }
 }
 
+function renderDisconnectedSnapshot() {
+  const postsList = document.getElementById("posts-list");
+  if (postsList) postsList.textContent = FEED_DISCONNECTED_MESSAGE;
+
+  if (followersList) {
+    followersList.textContent = "";
+
+    const followingCount = document.createElement("p");
+    const followingStrong = document.createElement("strong");
+    followingStrong.textContent = "Siguiendo:";
+    followingCount.appendChild(followingStrong);
+    followingCount.append(" 0");
+
+    const followersCount = document.createElement("p");
+    const followersStrong = document.createElement("strong");
+    followersStrong.textContent = "Seguidores:";
+    followersCount.appendChild(followersStrong);
+    followersCount.append(" 0");
+
+    followersList.appendChild(followingCount);
+    followersList.appendChild(followersCount);
+  }
+
+  renderFollowingList([]);
+}
+
 async function refreshSocialSnapshot() {
   if (!client) return;
   const [counts, following] = await Promise.all([
@@ -600,13 +627,12 @@ disconnectWalletBtn.addEventListener("click", () => {
   walletAddress = null;
   walletAddressEl.textContent = "";
   document.getElementById("profile-display").classList.add("hidden");
-  document.getElementById("posts-list").innerHTML = "";
-  followersList.innerHTML = "";
   profilePhotoFileEl.value = "";
   postFileEl.value = "";
   revokeBlobUrls();
   setUploadStatus(profileUploadStatusEl, "");
   setUploadStatus(postUploadStatusEl, "");
+  renderDisconnectedSnapshot();
   setWalletStatus("Desconectado.", "warn");
   setWalletUi(false);
 });
@@ -698,6 +724,8 @@ if (refreshFeedBtn) {
     }
   });
 }
+
+renderDisconnectedSnapshot();
 
 window.addEventListener("load", () => {
   setTimeout(() => {

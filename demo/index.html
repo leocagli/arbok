@@ -34,7 +34,7 @@
 
     <main class="app-shell">
         <aside class="left-column">
-            <section id="profile-section" class="card hidden">
+            <section id="profile-section" class="card">
                 <h2>Perfil</h2>
                 <div id="profile-display" class="hidden profile-head">
                     <img id="profile-photo" src="" alt="Foto">
@@ -58,7 +58,7 @@
                 </div>
             </section>
 
-            <section id="social-section" class="card hidden">
+            <section id="social-section" class="card">
                 <h2>Social</h2>
                 <input type="text" id="follow-uuid" placeholder="UUID para seguir">
                 <button id="follow-btn" class="btn btn-primary btn-full">Seguir</button>
@@ -71,7 +71,7 @@
         </aside>
 
         <section class="main-column">
-            <section id="post-section" class="card hidden">
+            <section id="post-section" class="card">
                 <h2>Publicar</h2>
                 <textarea id="post-content" placeholder="¿Qué estás pensando?"></textarea>
                 <label class="file-label">
@@ -85,9 +85,9 @@
                 </div>
             </section>
 
-            <section id="feed-section" class="card hidden">
+            <section id="feed-section" class="card">
                 <h2>Feed social</h2>
-                <div id="posts-list"></div>
+                <div id="posts-list">Conecta tu wallet para ver publicaciones de las cuentas que sigues.</div>
             </section>
         </section>
     </main>
