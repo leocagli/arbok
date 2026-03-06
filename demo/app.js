@@ -5,8 +5,10 @@ const activeBlobUrls = [];
 
 const DEFAULT_PHOTO = "https://via.placeholder.com/150";
 const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de las cuentas que sigues.";
-const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
-const ARKIV_CHAIN_ID = 60138453025;
+const ARKIV_NETWORK_NAME = "Arkiv Mendoza";
+const ARKIV_RPC_URL = "https://mendoza.hoodi.arkiv.network/rpc";
+const ARKIV_CHAIN_ID = 60138453056;
+const ARKIV_EXPLORER_URL = "https://explorer.mendoza.hoodi.arkiv.network/";
 const ARKIV_SDK_VERSION = "0.6.2";
 const PROFILE_EXPIRY_SECONDS = 24 * 60 * 60;
 const POST_EXPIRY_SECONDS = 60 * 60;
@@ -67,6 +69,8 @@ async function loadSdk() {
     sdk.custom = arkiv.custom;
     sdk.http = arkiv.http;
     sdk.kaolin = chains.kaolin;
+    sdk.mendoza = chains.mendoza;
+    sdk.activeChain = chains.mendoza || chains.kaolin;
   }
   return sdk;
 }
@@ -89,7 +93,7 @@ function setWalletStatus(message, tone = "info") {
   walletStatusEl.classList.remove("hidden");
 }
 
-async function ensureKaolinNetwork(provider) {
+async function ensureArkivNetwork(provider) {
   const chainIdHex = `0x${ARKIV_CHAIN_ID.toString(16)}`;
   try {
     await provider.request({
@@ -106,14 +110,14 @@ async function ensureKaolinNetwork(provider) {
     method: "wallet_addEthereumChain",
     params: [{
       chainId: chainIdHex,
-      chainName: "Arkiv Kaolin",
+      chainName: ARKIV_NETWORK_NAME,
       rpcUrls: [ARKIV_RPC_URL],
       nativeCurrency: {
         name: "Test ETH",
         symbol: "ETH",
         decimals: 18,
       },
-      blockExplorerUrls: ["https://explorer.kaolin.hoodi.arkiv.network/"],
+      blockExplorerUrls: [ARKIV_EXPLORER_URL],
     }],
   });
 
@@ -183,7 +187,7 @@ function userErrorMsg(error, fallback = "Ocurrio un error inesperado.") {
     return "Operacion cancelada en la wallet.";
   }
   if (/insufficient funds|intrinsic gas too low|gas required exceeds allowance|insufficient balance/i.test(raw)) {
-    return "La wallet no tiene fondos para gas en Kaolin. Carga test ETH en https://kaolin.hoodi.arkiv.network/faucet/ y reintenta.";
+    return `La wallet no tiene fondos para gas en ${ARKIV_NETWORK_NAME}. Carga test ETH y reintenta.`;
   }
   if (/Failed to fetch|NetworkError|fetch/i.test(raw)) {
     return "No se pudo conectar a la red. Revisa RPC/internet y vuelve a intentar.";
@@ -792,8 +796,8 @@ connectWalletBtn.addEventListener("click", async () => {
       return;
     }
 
-    setWalletStatus("Verificando red Arkiv Kaolin...", "info");
-    await ensureKaolinNetwork(provider);
+    setWalletStatus(`Verificando red ${ARKIV_NETWORK_NAME}...`, "info");
+    await ensureArkivNetwork(provider);
 
     const accounts = await provider.request({ method: "eth_requestAccounts" });
     walletAddress = accounts[0];
@@ -807,24 +811,24 @@ connectWalletBtn.addEventListener("click", async () => {
       createWalletClient,
       custom,
       http,
-      kaolin,
+      activeChain,
     } = await loadSdk();
 
-    const kaolinRpcClient = createPublicClient({
+    const networkRpcClient = createPublicClient({
       transport: http(ARKIV_RPC_URL),
-      chain: kaolin,
+      chain: activeChain,
     });
 
     const walletClient = createWalletClient({
       transport: custom(provider),
       account: walletAddress,
-      chain: kaolin,
+      chain: activeChain,
     });
 
     let txMaxFeePerGas = 2n * ONE_GWEI;
     let txMaxPriorityFeePerGas = ONE_GWEI;
     try {
-      const feeEstimate = await kaolinRpcClient.estimateFeesPerGas();
+      const feeEstimate = await networkRpcClient.estimateFeesPerGas();
       if (typeof feeEstimate?.maxPriorityFeePerGas === "bigint") {
         txMaxPriorityFeePerGas = feeEstimate.maxPriorityFeePerGas;
       }
@@ -852,7 +856,7 @@ connectWalletBtn.addEventListener("click", async () => {
       wallet,
       photo: DEFAULT_PHOTO,
       cdn: createArbok({
-        publicClient: createPublicClient({ transport: publicTransport, chain: kaolin }),
+        publicClient: createPublicClient({ transport: publicTransport, chain: activeChain }),
         wallets: walletClient,
       }),
     });
@@ -988,7 +992,7 @@ connectWalletBtn.addEventListener("click", async () => {
           setWalletStatus("Wallet conectada, pero falta gas para crear perfil.", "warn");
           alert(
             "Wallet conectada, pero no se pudo crear el perfil on-chain. "
-            + "Carga test ETH en https://kaolin.hoodi.arkiv.network/faucet/ "
+            + `Carga test ETH en ${ARKIV_NETWORK_NAME} `
             + "y vuelve a presionar 'Conectar MetaMask'.\n\n"
             + `Gas: ${gasInfo}`
           );
@@ -998,7 +1002,7 @@ connectWalletBtn.addEventListener("click", async () => {
         if (!profileResult && isTransactionFailedError(createError)) {
           let balanceWei = null;
           try {
-            balanceWei = await kaolinRpcClient.getBalance({ address: walletAddress });
+            balanceWei = await networkRpcClient.getBalance({ address: walletAddress });
           } catch {
             balanceWei = null;
           }
@@ -1007,21 +1011,21 @@ connectWalletBtn.addEventListener("click", async () => {
 
           setWalletUi(true);
           if (balanceWei === 0n) {
-            setWalletStatus("Wallet conectada, pero sin ETH en Kaolin.", "warn");
+            setWalletStatus(`Wallet conectada, pero sin ETH en ${ARKIV_NETWORK_NAME}.`, "warn");
             alert(
-              "Tu wallet parece tener 0 ETH en Arkiv Kaolin (testnet). "
-              + "Saldo Kaolin: 0 ETH. Carga fondos en https://kaolin.hoodi.arkiv.network/faucet/ "
+              `Tu wallet parece tener 0 ETH en ${ARKIV_NETWORK_NAME}. `
+              + `Saldo ${ARKIV_NETWORK_NAME}: 0 ETH. Carga fondos de testnet `
               + "y vuelve a intentar."
             );
             return;
           }
 
-          const kaolinBalanceText = balanceWei == null ? "desconocido" : `${formatWeiToEth(balanceWei)} ETH`;
+          const networkBalanceText = balanceWei == null ? "desconocido" : `${formatWeiToEth(balanceWei)} ETH`;
           setWalletStatus("Wallet conectada, pero la transaccion fue revertida.", "warn");
           alert(
-            "La transaccion de creacion de perfil fallo aunque hay saldo en Kaolin. "
-            + `Saldo Kaolin detectado: ${kaolinBalanceText}. `
-            + "Revisa MetaMask (misma cuenta y red Arkiv Kaolin) y reintenta.\n\n"
+            `La transaccion de creacion de perfil fallo aunque hay saldo en ${ARKIV_NETWORK_NAME}. `
+            + `Saldo detectado: ${networkBalanceText}. `
+            + `Revisa MetaMask (misma cuenta y red ${ARKIV_NETWORK_NAME}) y reintenta.\n\n`
             + `Gas: ${gasInfo}\n`
             + `Revert: ${revertDetails}`
           );
@@ -1069,7 +1073,7 @@ connectWalletBtn.addEventListener("click", async () => {
     );
 
     setWalletUi(true);
-    setWalletStatus("Conectado a Arkiv Kaolin.", "success");
+    setWalletStatus(`Conectado a ${ARKIV_NETWORK_NAME}.`, "success");
   } catch (error) {
     console.error(error);
     const message = safeMsg(error);
