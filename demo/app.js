@@ -8,7 +8,7 @@ const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de l
 const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
 const ARKIV_CHAIN_ID = 60138453025;
 const ARKIV_SDK_VERSION = "0.6.2";
-const PROFILE_EXPIRY_SECONDS = 365 * 24 * 60 * 60;
+const PROFILE_EXPIRY_SECONDS = 24 * 60 * 60;
 const PROFILE_CREATE_GAS_LIMIT = 320000n;
 const ONE_GWEI = 1_000_000_000n;
 
@@ -307,18 +307,33 @@ async function createProfileCompat(baseClient) {
   };
 
   const payload = new TextEncoder().encode(JSON.stringify(profile));
-  const { entityKey } = await baseClient.cdn.entity.create({
-    payload,
-    contentType: "application/json",
-    attributes: [
-      { key: "arbok_type", value: "profile" },
-      { key: "arbok_uuid", value: baseClient.uuid },
-      { key: "arbok_wallet", value: baseClient.wallet },
-    ],
-    expiresIn: PROFILE_EXPIRY_SECONDS,
-  });
+  const expiryAttempts = [
+    PROFILE_EXPIRY_SECONDS,
+    6 * 60 * 60,
+    60 * 60,
+  ];
 
-  return { entityKey, profile };
+  let lastError = null;
+  for (const expiresIn of expiryAttempts) {
+    try {
+      const { entityKey } = await baseClient.cdn.entity.create({
+        payload,
+        contentType: "application/json",
+        attributes: [
+          { key: "arbok_type", value: "profile" },
+          { key: "arbok_uuid", value: baseClient.uuid },
+          { key: "arbok_wallet", value: baseClient.wallet },
+        ],
+        expiresIn,
+      });
+
+      return { entityKey, profile, expiresIn };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error("Compat profile creation failed");
 }
 
 function resolvePhotoSrc(photo) {
@@ -795,8 +810,8 @@ connectWalletBtn.addEventListener("click", async () => {
         try {
           const compatResult = await createProfileCompat(client);
           profileResult = compatResult;
-          setWalletStatus("Perfil creado con modo compatibilidad.", "success");
-          console.info("[Arbok] profile created with compat mode");
+          setWalletStatus(`Perfil creado en modo compatibilidad (ttl=${compatResult.expiresIn}s).`, "success");
+          console.info("[Arbok] profile created with compat mode", compatResult.expiresIn);
         } catch (compatError) {
           console.warn("[Arbok] compat profile creation failed:", safeMsg(compatError));
         }
