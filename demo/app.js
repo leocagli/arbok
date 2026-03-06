@@ -218,6 +218,81 @@ function formatWeiToEth(wei) {
   return `${whole}.${fraction}`;
 }
 
+function formatWeiToGwei(wei) {
+  const value = typeof wei === "bigint" ? wei : BigInt(wei || 0);
+  const base = 10n ** 9n;
+  const whole = value / base;
+  const fraction = (value % base).toString().padStart(9, "0").slice(0, 3);
+  return `${whole}.${fraction}`;
+}
+
+function parseHexToBigInt(hexValue) {
+  if (typeof hexValue !== "string" || !hexValue.startsWith("0x")) return null;
+  try {
+    return BigInt(hexValue);
+  } catch {
+    return null;
+  }
+}
+
+function createGasProbe(provider) {
+  const originalRequest = provider.request.bind(provider);
+  const info = {
+    estimatedGas: null,
+    sendGas: null,
+    maxFeePerGas: null,
+    maxPriorityFeePerGas: null,
+    gasPrice: null,
+  };
+
+  provider.request = async (args) => {
+    const method = args?.method;
+    const params = args?.params;
+
+    if (method === "eth_sendTransaction" && Array.isArray(params) && params[0]) {
+      const tx = params[0];
+      info.sendGas = parseHexToBigInt(tx.gas ?? null);
+      info.maxFeePerGas = parseHexToBigInt(tx.maxFeePerGas ?? null);
+      info.maxPriorityFeePerGas = parseHexToBigInt(tx.maxPriorityFeePerGas ?? null);
+      info.gasPrice = parseHexToBigInt(tx.gasPrice ?? null);
+    }
+
+    const result = await originalRequest(args);
+
+    if (method === "eth_estimateGas") {
+      info.estimatedGas = parseHexToBigInt(result);
+    }
+
+    return result;
+  };
+
+  return {
+    stop() {
+      provider.request = originalRequest;
+    },
+    snapshot() {
+      return {
+        estimatedGas: info.estimatedGas,
+        sendGas: info.sendGas,
+        maxFeePerGas: info.maxFeePerGas,
+        maxPriorityFeePerGas: info.maxPriorityFeePerGas,
+        gasPrice: info.gasPrice,
+      };
+    },
+  };
+}
+
+function formatGasDiagnostics(snapshot) {
+  const pieces = [];
+  if (snapshot.estimatedGas != null) pieces.push(`estimate=${snapshot.estimatedGas.toString()} gas`);
+  if (snapshot.sendGas != null) pieces.push(`send=${snapshot.sendGas.toString()} gas`);
+  if (snapshot.maxFeePerGas != null) pieces.push(`maxFee=${formatWeiToGwei(snapshot.maxFeePerGas)} gwei`);
+  if (snapshot.maxPriorityFeePerGas != null) pieces.push(`tip=${formatWeiToGwei(snapshot.maxPriorityFeePerGas)} gwei`);
+  if (snapshot.gasPrice != null) pieces.push(`gasPrice=${formatWeiToGwei(snapshot.gasPrice)} gwei`);
+  if (pieces.length === 0) return "sin datos de gas (wallet no expuso estimate/send)";
+  return pieces.join(" | ");
+}
+
 function resolvePhotoSrc(photo) {
   if (typeof photo === "string" && /^https?:\/\//i.test(photo)) return photo;
   return DEFAULT_PHOTO;
@@ -643,6 +718,7 @@ connectWalletBtn.addEventListener("click", async () => {
 
     if (profileChecked && !profileResult) {
       setWalletStatus(`Perfil no existe. Creando en cadena (${client.uuid}, ${client.wallet})...`, "info");
+      const gasProbe = createGasProbe(provider);
       try {
         profileResult = await withRetry(
           () => client.getOrCreate(),
@@ -654,14 +730,19 @@ connectWalletBtn.addEventListener("click", async () => {
             },
           },
         );
+        const gasInfo = formatGasDiagnostics(gasProbe.snapshot());
+        console.info("[Arbok][Gas] create profile:", gasInfo);
       } catch (createError) {
+        const gasInfo = formatGasDiagnostics(gasProbe.snapshot());
+        console.warn("[Arbok][Gas] create profile failed:", gasInfo);
         if (isInsufficientFundsError(createError)) {
           setWalletUi(true);
           setWalletStatus("Wallet conectada, pero falta gas para crear perfil.", "warn");
           alert(
             "Wallet conectada, pero no se pudo crear el perfil on-chain. "
             + "Carga test ETH en https://kaolin.hoodi.arkiv.network/faucet/ "
-            + "y vuelve a presionar 'Conectar MetaMask'."
+            + "y vuelve a presionar 'Conectar MetaMask'.\n\n"
+            + `Gas: ${gasInfo}`
           );
           return;
         }
@@ -690,12 +771,15 @@ connectWalletBtn.addEventListener("click", async () => {
           alert(
             "La transaccion de creacion de perfil fallo aunque hay saldo en Kaolin. "
             + `Saldo Kaolin detectado: ${kaolinBalanceText}. `
-            + "Revisa MetaMask (misma cuenta y red Arkiv Kaolin) y reintenta."
+            + "Revisa MetaMask (misma cuenta y red Arkiv Kaolin) y reintenta.\n\n"
+            + `Gas: ${gasInfo}`
           );
           return;
         }
 
         throw createError;
+      } finally {
+        gasProbe.stop();
       }
     }
 
