@@ -31,22 +31,22 @@ cd demo
 node server.js
 ```
 
-Alternativa (Python):
+Alternativa recomendada (Python):
 
 ```bash
-cd demo
-python -m http.server 8000
+python demo/server.py
 ```
 
 3. Abrir:
 
 ```text
-http://localhost:8000
+http://localhost:8010/demo/
 ```
 
 ## Notas
 
 - El demo importa el SDK desde `/dist/index.mjs`.
+- Para que funcione, el servidor debe exponer tanto `/demo` como `/dist`.
 - Si ves el error "No se encontro /dist/index.mjs", falta ejecutar `npm run build`.
 - El UUID del usuario se deriva de la wallet conectada (`user-<address-sin-0x>`).
 - El RPC usado por defecto es `https://kaolin.hoodi.arkiv.network/rpc`.
