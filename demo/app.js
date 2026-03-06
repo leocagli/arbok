@@ -8,6 +8,8 @@ const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de l
 const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
 const ARKIV_CHAIN_ID = 60138453025;
 const ARKIV_SDK_VERSION = "0.6.2";
+const PROFILE_CREATE_GAS_LIMIT = 320000n;
+const ONE_GWEI = 1_000_000_000n;
 
 const connectWalletBtn = document.getElementById("connect-wallet");
 const disconnectWalletBtn = document.getElementById("disconnect-wallet");
@@ -620,6 +622,30 @@ connectWalletBtn.addEventListener("click", async () => {
       account: walletAddress,
       chain: kaolin,
     });
+
+    let txMaxFeePerGas = 2n * ONE_GWEI;
+    let txMaxPriorityFeePerGas = ONE_GWEI;
+    try {
+      const feeEstimate = await kaolinRpcClient.estimateFeesPerGas();
+      if (typeof feeEstimate?.maxPriorityFeePerGas === "bigint") {
+        txMaxPriorityFeePerGas = feeEstimate.maxPriorityFeePerGas;
+      }
+      if (typeof feeEstimate?.maxFeePerGas === "bigint") {
+        txMaxFeePerGas = feeEstimate.maxFeePerGas;
+      }
+    } catch {
+    }
+
+    const profileTxParams = {
+      gas: PROFILE_CREATE_GAS_LIMIT,
+      maxFeePerGas: txMaxFeePerGas,
+      maxPriorityFeePerGas: txMaxPriorityFeePerGas,
+    };
+
+    if (typeof walletClient.createEntity === "function") {
+      const originalCreateEntity = walletClient.createEntity.bind(walletClient);
+      walletClient.createEntity = (data, txParams) => originalCreateEntity(data, txParams ?? profileTxParams);
+    }
     const primaryUuid = deriveUuid(walletAddress);
     const legacyUuid = deriveLegacyUuid(walletAddress);
 
@@ -717,7 +743,11 @@ connectWalletBtn.addEventListener("click", async () => {
     }
 
     if (profileChecked && !profileResult) {
-      setWalletStatus(`Perfil no existe. Creando en cadena (${client.uuid}, ${client.wallet})...`, "info");
+      const maxCostWei = PROFILE_CREATE_GAS_LIMIT * txMaxFeePerGas;
+      setWalletStatus(
+        `Creando perfil (gas=${PROFILE_CREATE_GAS_LIMIT.toString()}, max~${formatWeiToEth(maxCostWei)} ETH)...`,
+        "info",
+      );
       const gasProbe = createGasProbe(provider);
       try {
         profileResult = await withRetry(
