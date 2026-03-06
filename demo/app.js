@@ -387,37 +387,63 @@ async function createProfileCompat(baseClient, data = {}) {
   throw lastError ?? new Error("Compat profile creation failed");
 }
 
-async function updateProfileCompat(baseClient, data = {}) {
-  const connectedWallet = (data.connectedWallet || "").toLowerCase();
+function isLikelyProfileEntity(entity, connectedWallet) {
+  if (!entity) return false;
 
-  let existing = null;
-  if (connectedWallet) {
+  let json = null;
+  try {
+    json = entity.toJson();
+  } catch {
+    json = null;
+  }
+
+  const walletFromJson = (json && typeof json === "object" ? String(json.wallet || "") : "").toLowerCase();
+  const hasUuid = Boolean(json && typeof json === "object" && typeof json.uuid === "string" && json.uuid.length > 0);
+
+  const attributes = Array.isArray(entity.attributes) ? entity.attributes : [];
+  const attrWallet = attributes.find((attr) => attr?.key === "arbok_wallet")?.value;
+  const attrType = attributes.find((attr) => attr?.key === "arbok_type")?.value;
+
+  const walletMatch = walletFromJson === connectedWallet || String(attrWallet || "").toLowerCase() === connectedWallet;
+  const typeMatch = String(attrType || "") === "profile";
+
+  return walletMatch && (hasUuid || typeMatch);
+}
+
+async function findOwnedProfileCompat(baseClient, rawConnectedWallet) {
+  const normalizedWallet = String(rawConnectedWallet || "").toLowerCase();
+  if (!normalizedWallet) return null;
+
+  const ownerCandidates = Array.from(new Set([String(rawConnectedWallet || ""), normalizedWallet].filter(Boolean)));
+
+  for (const ownerCandidate of ownerCandidates) {
     try {
       const ownedResult = await baseClient.cdn.entity
         .query()
-        .ownedBy(connectedWallet)
+        .ownedBy(ownerCandidate)
         .withPayload(true)
         .withAttributes(true)
         .fetch();
 
-      const ownedEntity = (ownedResult.entities || []).find((entity) => {
-        try {
-          const json = entity.toJson();
-          return json && typeof json === "object" && typeof json.uuid === "string";
-        } catch {
-          return false;
-        }
-      });
+      const ownedEntity = (ownedResult.entities || []).find((entity) => isLikelyProfileEntity(entity, normalizedWallet));
       if (ownedEntity) {
-        existing = {
+        return {
           entityKey: ownedEntity.key,
           profile: ownedEntity.toJson(),
         };
       }
     } catch {
-      existing = null;
     }
   }
+
+  return null;
+}
+
+async function updateProfileCompat(baseClient, data = {}) {
+  const rawConnectedWallet = String(data.connectedWallet || "");
+  const connectedWallet = rawConnectedWallet.toLowerCase();
+
+  let existing = await findOwnedProfileCompat(baseClient, rawConnectedWallet);
 
   if (!existing) {
     existing = await baseClient.get();
