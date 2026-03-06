@@ -144,6 +144,57 @@ export class BaseClient {
       }
     }
 
+    if (!entity) {
+      try {
+        const byWalletResult = await searchCdn.entity
+          .query()
+          .where([
+            eq(ATTR_TYPE, PROFILE_TYPE),
+            eq(ATTR_WALLET, this.wallet),
+          ])
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        entity = byWalletResult.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
+
+    if (!entity) {
+      try {
+        const legacyDottedByWallet = await searchCdn.entity
+          .query()
+          .where([
+            eq(LEGACY_ARBOK_ATTR_TYPE, PROFILE_TYPE),
+            eq(LEGACY_ARBOK_ATTR_WALLET, this.wallet),
+          ])
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        entity = legacyDottedByWallet.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
+
+    if (!entity) {
+      try {
+        const legacyAsideByWallet = await searchCdn.entity
+          .query()
+          .where([
+            eq(LEGACY_ATTR_TYPE, PROFILE_TYPE),
+            eq(LEGACY_ATTR_WALLET, this.wallet),
+          ])
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        entity = legacyAsideByWallet.entities[0]
+      } catch {
+        entity = undefined
+      }
+    }
+
     if (!entity) return null
 
     const profile = entity.toJson() as BaseProfileData

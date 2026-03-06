@@ -917,6 +917,22 @@ connectWalletBtn.addEventListener("click", async () => {
       throw new Error("No se pudo obtener ni crear el perfil en Arkiv.");
     }
 
+    if (profileResult?.profile?.uuid && profileResult.profile.uuid !== client.uuid) {
+      const adoptedUuid = profileResult.profile.uuid;
+      const adoptedWallet = (profileResult.profile.wallet || normalizedWallet).toLowerCase();
+      setWalletStatus(`Perfil existente detectado. UUID adoptado: ${adoptedUuid}`, "info");
+
+      client = makeClient(activeTransport, adoptedUuid, adoptedWallet);
+      const adoptedProfileResult = await withRetry(
+        () => client.get(),
+        {
+          attempts: 2,
+          delayMs: 500,
+        },
+      );
+      if (adoptedProfileResult) profileResult = adoptedProfileResult;
+    }
+
     const { profile } = profileResult;
     showProfile(profile);
 
