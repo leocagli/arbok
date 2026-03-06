@@ -191,7 +191,7 @@ function userErrorMsg(error, fallback = "Ocurrio un error inesperado.") {
     return "Fallo la consulta al RPC de Arkiv. Intenta nuevamente en unos segundos.";
   }
   if (/transaction failed|execution reverted|reverted|call exception/i.test(raw)) {
-    return "La transaccion para crear el perfil fallo. Carga test ETH en faucet y vuelve a intentar.";
+    return "La transaccion fue revertida por Arkiv. Reintenta y revisa el detalle tecnico del revert.";
   }
 
   if (!raw) return fallback;
@@ -332,12 +332,15 @@ function formatGasDiagnostics(snapshot) {
   return pieces.join(" | ");
 }
 
-async function createProfileCompat(baseClient) {
+async function createProfileCompat(baseClient, data = {}) {
   const now = Date.now();
+  const normalizedWallet = (baseClient.wallet || "").toLowerCase();
   const profile = {
-    uuid: baseClient.uuid,
-    wallet: baseClient.wallet,
-    photo: DEFAULT_PHOTO,
+    uuid: data.uuid || baseClient.uuid,
+    wallet: data.wallet || normalizedWallet,
+    photo: data.photo || DEFAULT_PHOTO,
+    ...(data.displayName != null ? { displayName: data.displayName } : {}),
+    ...(data.bio != null ? { bio: data.bio } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -358,7 +361,7 @@ async function createProfileCompat(baseClient) {
         attributes: [
           { key: "arbok_type", value: "profile" },
           { key: "arbok_uuid", value: baseClient.uuid },
-          { key: "arbok_wallet", value: baseClient.wallet },
+          { key: "arbok_wallet", value: normalizedWallet },
         ],
         expiresIn,
       });
@@ -370,6 +373,41 @@ async function createProfileCompat(baseClient) {
   }
 
   throw lastError ?? new Error("Compat profile creation failed");
+}
+
+async function updateProfileCompat(baseClient, data = {}) {
+  const existing = await baseClient.get();
+  if (!existing) {
+    return createProfileCompat(baseClient, data);
+  }
+
+  const now = Date.now();
+  const current = existing.profile || {};
+  const uuid = current.uuid || baseClient.uuid;
+  const wallet = (current.wallet || baseClient.wallet || "").toLowerCase();
+  const updated = {
+    ...current,
+    ...data,
+    uuid,
+    wallet,
+    createdAt: current.createdAt ?? now,
+    updatedAt: now,
+  };
+
+  const payload = new TextEncoder().encode(JSON.stringify(updated));
+  await baseClient.cdn.entity.update({
+    entityKey: existing.entityKey,
+    payload,
+    contentType: "application/json",
+    attributes: [
+      { key: "arbok_type", value: "profile" },
+      { key: "arbok_uuid", value: uuid },
+      { key: "arbok_wallet", value: wallet },
+    ],
+    expiresIn: PROFILE_EXPIRY_SECONDS,
+  });
+
+  return { entityKey: existing.entityKey, profile: updated };
 }
 
 function resolvePhotoSrc(photo) {
@@ -996,7 +1034,16 @@ document.getElementById("save-profile").addEventListener("click", async () => {
       photo = await uploadFileToArkiv(photoFile, profileUploadStatusEl);
     }
 
-    const { profile } = await client.update({ displayName, bio, photo });
+    let updateResult;
+    try {
+      updateResult = await client.update({ displayName, bio, photo });
+    } catch (updateError) {
+      if (!isTransactionFailedError(updateError)) throw updateError;
+      updateResult = await updateProfileCompat(client, { displayName, bio, photo });
+      setWalletStatus("Perfil guardado con modo compatibilidad.", "warn");
+    }
+
+    const { profile } = updateResult;
     showProfile(profile);
     alert("Perfil guardado.");
   } catch (error) {
