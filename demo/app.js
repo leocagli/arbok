@@ -332,6 +332,13 @@ function formatGasDiagnostics(snapshot) {
   return pieces.join(" | ");
 }
 
+function buildRescueUuid(wallet) {
+  const raw = String(wallet || "").toLowerCase().replace(/^0x/, "");
+  const left = raw.slice(0, 8) || "user";
+  const suffix = Date.now().toString(36);
+  return `u-${left}-${suffix}`;
+}
+
 async function createProfileCompat(baseClient, data = {}) {
   const now = Date.now();
   const normalizedWallet = (baseClient.wallet || "").toLowerCase();
@@ -391,7 +398,7 @@ async function updateProfileCompat(baseClient, data = {}) {
       const ownedEntity = (ownedResult.entities || []).find((entity) => {
         try {
           const json = entity.toJson();
-          return json && (json.wallet || "").toLowerCase() === connectedWallet;
+          return json && typeof json === "object" && typeof json.uuid === "string";
         } catch {
           return false;
         }
@@ -433,7 +440,11 @@ async function updateProfileCompat(baseClient, data = {}) {
     const entity = await baseClient.cdn.entity.get(existing.entityKey);
     const owner = (entity?.owner || "").toLowerCase();
     if (connectedWallet && owner && owner !== connectedWallet) {
-      return createProfileCompat(baseClient, { ...data, wallet: connectedWallet, uuid: baseClient.uuid });
+      return createProfileCompat(baseClient, {
+        ...data,
+        wallet: connectedWallet,
+        uuid: buildRescueUuid(connectedWallet),
+      });
     }
   } catch {
   }
@@ -1082,13 +1093,22 @@ document.getElementById("save-profile").addEventListener("click", async () => {
       updateResult = await client.update({ displayName, bio, photo });
     } catch (updateError) {
       if (!isTransactionFailedError(updateError)) throw updateError;
-      updateResult = await updateProfileCompat(client, {
-        displayName,
-        bio,
-        photo,
-        connectedWallet: walletAddress,
-      });
-      setWalletStatus("Perfil guardado con modo compatibilidad.", "warn");
+
+      try {
+        updateResult = await updateProfileCompat(client, {
+          displayName,
+          bio,
+          photo,
+          connectedWallet: walletAddress,
+        });
+        setWalletStatus("Perfil guardado con modo compatibilidad.", "warn");
+      } catch (compatError) {
+        const revertDetails = extractErrorDetails(compatError);
+        throw new Error(
+          "La transaccion fue revertida por Arkiv. "
+          + `Detalle tecnico: ${revertDetails}`
+        );
+      }
     }
 
     const { profile } = updateResult;
