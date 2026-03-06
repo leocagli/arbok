@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbok - Red Social Descentralizada</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🐍 Arbok</h1>
+            <p>Red social descentralizada en Arkiv Network</p>
+        </header>
+
+        <div id="wallet-section" class="card">
+            <h2>Conectar Wallet</h2>
+            <button id="connect-wallet" class="btn btn-primary">Conectar MetaMask</button>
+            <div id="wallet-info" class="hidden">
+                <p>Wallet: <span id="wallet-address"></span></p>
+                <button id="disconnect-wallet" class="btn btn-secondary">Desconectar</button>
+            </div>
+        </div>
+
+        <div id="profile-section" class="card hidden">
+            <h2>Mi Perfil</h2>
+            <div id="profile-form">
+                <input type="text" id="display-name" placeholder="Nombre para mostrar">
+                <textarea id="bio" placeholder="Bio"></textarea>
+                <input type="text" id="photo-url" placeholder="URL de foto">
+                <button id="save-profile" class="btn btn-primary">Guardar Perfil</button>
+            </div>
+            <div id="profile-display" class="hidden">
+                <img id="profile-photo" src="" alt="Foto">
+                <h3 id="profile-name"></h3>
+                <p id="profile-bio"></p>
+                <button id="edit-profile" class="btn btn-secondary">Editar</button>
+            </div>
+        </div>
+
+        <div id="post-section" class="card hidden">
+            <h2>Crear Post</h2>
+            <textarea id="post-content" placeholder="¿Qué estás pensando?"></textarea>
+            <button id="create-post" class="btn btn-primary">Publicar</button>
+        </div>
+
+        <div id="feed-section" class="card hidden">
+            <h2>Feed</h2>
+            <div id="posts-list"></div>
+        </div>
+
+        <div id="social-section" class="card hidden">
+            <h2>Social</h2>
+            <input type="text" id="follow-uuid" placeholder="UUID para seguir">
+            <button id="follow-btn" class="btn btn-primary">Seguir</button>
+            <div id="followers-list"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
