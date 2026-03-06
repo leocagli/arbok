@@ -213,6 +213,42 @@ function isTransactionFailedError(error) {
   return /transaction failed|execution reverted|reverted|call exception/i.test(raw);
 }
 
+function extractErrorDetails(error) {
+  const visited = new Set();
+  const queue = [error];
+  const parts = [];
+
+  while (queue.length > 0 && parts.length < 8) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object") continue;
+    if (visited.has(current)) continue;
+    visited.add(current);
+
+    const details = typeof current.details === "string" ? current.details : "";
+    const shortMessage = typeof current.shortMessage === "string" ? current.shortMessage : "";
+    const message = typeof current.message === "string" ? current.message : "";
+
+    for (const text of [details, shortMessage, message]) {
+      if (!text) continue;
+      const normalized = text.trim();
+      if (!normalized) continue;
+      if (!parts.includes(normalized)) parts.push(normalized);
+    }
+
+    const data = current.data;
+    if (typeof data === "string" && data.trim()) {
+      const normalizedData = `data=${data.trim()}`;
+      if (!parts.includes(normalizedData)) parts.push(normalizedData);
+    }
+
+    if (current.cause && typeof current.cause === "object") queue.push(current.cause);
+    if (current.error && typeof current.error === "object") queue.push(current.error);
+  }
+
+  if (parts.length === 0) return "sin detalle tecnico del backend";
+  return parts.join(" | ").slice(0, 1200);
+}
+
 function formatWeiToEth(wei) {
   const value = typeof wei === "bigint" ? wei : BigInt(wei || 0);
   const base = 10n ** 18n;
@@ -806,6 +842,9 @@ connectWalletBtn.addEventListener("click", async () => {
       } catch (createError) {
         const gasInfo = formatGasDiagnostics(gasProbe.snapshot());
         console.warn("[Arbok][Gas] create profile failed:", gasInfo);
+        const createErrorDetails = extractErrorDetails(createError);
+        console.warn("[Arbok][CreateError]", createErrorDetails);
+        let compatFailure = null;
 
         try {
           const compatResult = await createProfileCompat(client);
@@ -813,7 +852,9 @@ connectWalletBtn.addEventListener("click", async () => {
           setWalletStatus(`Perfil creado en modo compatibilidad (ttl=${compatResult.expiresIn}s).`, "success");
           console.info("[Arbok] profile created with compat mode", compatResult.expiresIn);
         } catch (compatError) {
+          compatFailure = compatError;
           console.warn("[Arbok] compat profile creation failed:", safeMsg(compatError));
+          console.warn("[Arbok][CompatError]", extractErrorDetails(compatError));
         }
 
         if (profileResult) {
@@ -841,6 +882,8 @@ connectWalletBtn.addEventListener("click", async () => {
             balanceWei = null;
           }
 
+          const revertDetails = extractErrorDetails(compatFailure ?? createError);
+
           setWalletUi(true);
           if (balanceWei === 0n) {
             setWalletStatus("Wallet conectada, pero sin ETH en Kaolin.", "warn");
@@ -858,7 +901,8 @@ connectWalletBtn.addEventListener("click", async () => {
             "La transaccion de creacion de perfil fallo aunque hay saldo en Kaolin. "
             + `Saldo Kaolin detectado: ${kaolinBalanceText}. `
             + "Revisa MetaMask (misma cuenta y red Arkiv Kaolin) y reintenta.\n\n"
-            + `Gas: ${gasInfo}`
+            + `Gas: ${gasInfo}\n`
+            + `Revert: ${revertDetails}`
           );
           return;
         }
