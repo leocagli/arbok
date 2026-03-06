@@ -182,6 +182,9 @@ function userErrorMsg(error, fallback = "Ocurrio un error inesperado.") {
   if (/Request body:|URL:|arkiv_query|rpc/i.test(raw)) {
     return "Fallo la consulta al RPC de Arkiv. Intenta nuevamente en unos segundos.";
   }
+  if (/transaction failed|execution reverted|reverted|call exception/i.test(raw)) {
+    return "La transaccion para crear el perfil fallo. Carga test ETH en faucet y vuelve a intentar.";
+  }
 
   if (!raw) return fallback;
   return raw.length > 220 ? `${raw.slice(0, 220)}...` : raw;
@@ -195,6 +198,11 @@ function isRpcLikeError(error) {
 function isInsufficientFundsError(error) {
   const raw = safeMsg(error);
   return /insufficient funds|intrinsic gas too low|gas required exceeds allowance|insufficient balance/i.test(raw);
+}
+
+function isTransactionFailedError(error) {
+  const raw = safeMsg(error);
+  return /transaction failed|execution reverted|reverted|call exception/i.test(raw);
 }
 
 function resolvePhotoSrc(photo) {
@@ -576,8 +584,15 @@ connectWalletBtn.addEventListener("click", async () => {
           },
         );
       } catch (createError) {
-        if (isInsufficientFundsError(createError)) {
-          throw new Error("Wallet sin gas en Kaolin. Usa faucet: https://kaolin.hoodi.arkiv.network/faucet/");
+        if (isInsufficientFundsError(createError) || isTransactionFailedError(createError)) {
+          setWalletUi(true);
+          setWalletStatus("Wallet conectada, pero falta gas para crear perfil.", "warn");
+          alert(
+            "Wallet conectada, pero no se pudo crear el perfil on-chain. "
+            + "Carga test ETH en https://kaolin.hoodi.arkiv.network/faucet/ "
+            + "y vuelve a presionar 'Conectar MetaMask'."
+          );
+          return;
         }
         throw createError;
       }
