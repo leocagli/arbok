@@ -1,14 +1,16 @@
 let sdk = null;
 let client = null;
 let walletAddress = null;
+let directWalletClient = null;
+let directPublicClient = null;
 const activeBlobUrls = [];
 
 const DEFAULT_PHOTO = "https://via.placeholder.com/150";
 const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de las cuentas que sigues.";
-const ARKIV_NETWORK_NAME = "Arkiv Mendoza";
-const ARKIV_RPC_URL = "https://mendoza.hoodi.arkiv.network/rpc";
-const ARKIV_CHAIN_ID = 60138453056;
-const ARKIV_EXPLORER_URL = "https://explorer.mendoza.hoodi.arkiv.network/";
+const ARKIV_NETWORK_NAME = "Arkiv Kaolin";
+const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
+const ARKIV_CHAIN_ID = 60138453025;
+const ARKIV_EXPLORER_URL = "https://explorer.kaolin.hoodi.arkiv.network/";
 const ARKIV_SDK_VERSION = "0.6.2";
 const PROFILE_EXPIRY_SECONDS = 24 * 60 * 60;
 const POST_EXPIRY_SECONDS = 60 * 60;
@@ -70,7 +72,7 @@ async function loadSdk() {
     sdk.http = arkiv.http;
     sdk.kaolin = chains.kaolin;
     sdk.mendoza = chains.mendoza;
-    sdk.activeChain = chains.mendoza || chains.kaolin;
+    sdk.activeChain = chains.kaolin;
   }
   return sdk;
 }
@@ -367,16 +369,20 @@ async function createProfileCompat(baseClient, data = {}) {
   let lastError = null;
   for (const expiresIn of expiryAttempts) {
     try {
-      const { entityKey } = await baseClient.cdn.entity.create({
+      const createArgs = {
         payload,
         contentType: "application/json",
         attributes: [
           { key: "arbok_type", value: "profile" },
-          { key: "arbok_uuid", value: baseClient.uuid },
+          { key: "arbok_uuid", value: String(profile.uuid || baseClient.uuid) },
           { key: "arbok_wallet", value: normalizedWallet },
         ],
         expiresIn,
-      });
+      };
+
+      const { entityKey } = directWalletClient?.createEntity
+        ? await directWalletClient.createEntity(createArgs)
+        : await baseClient.cdn.entity.create(createArgs);
 
       return { entityKey, profile, expiresIn };
     } catch (error) {
@@ -418,12 +424,19 @@ async function findOwnedProfileCompat(baseClient, rawConnectedWallet) {
 
   for (const ownerCandidate of ownerCandidates) {
     try {
-      const ownedResult = await baseClient.cdn.entity
-        .query()
-        .ownedBy(ownerCandidate)
-        .withPayload(true)
-        .withAttributes(true)
-        .fetch();
+      const ownedResult = directPublicClient?.buildQuery
+        ? await directPublicClient
+          .buildQuery()
+          .ownedBy(ownerCandidate)
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch()
+        : await baseClient.cdn.entity
+          .query()
+          .ownedBy(ownerCandidate)
+          .withPayload(true)
+          .withAttributes(true)
+          .fetch();
 
       const ownedEntity = (ownedResult.entities || []).find((entity) => isLikelyProfileEntity(entity, normalizedWallet));
       if (ownedEntity) {
@@ -480,7 +493,7 @@ async function updateProfileCompat(baseClient, data = {}) {
   } catch {
   }
 
-  await baseClient.cdn.entity.update({
+  const updateArgs = {
     entityKey: existing.entityKey,
     payload,
     contentType: "application/json",
@@ -490,7 +503,13 @@ async function updateProfileCompat(baseClient, data = {}) {
       { key: "arbok_wallet", value: wallet },
     ],
     expiresIn: PROFILE_EXPIRY_SECONDS,
-  });
+  };
+
+  if (directWalletClient?.updateEntity) {
+    await directWalletClient.updateEntity(updateArgs);
+  } else {
+    await baseClient.cdn.entity.update(updateArgs);
+  }
 
   return { entityKey: existing.entityKey, profile: updated };
 }
@@ -509,7 +528,7 @@ async function createPostCompat(baseClient, options = {}) {
   };
 
   const payload = new TextEncoder().encode(JSON.stringify(post));
-  const { entityKey } = await baseClient.cdn.entity.create({
+  const createArgs = {
     payload,
     contentType: "application/json",
     attributes: [
@@ -518,7 +537,11 @@ async function createPostCompat(baseClient, options = {}) {
       { key: "arbok_wallet", value: wallet },
     ],
     expiresIn: POST_EXPIRY_SECONDS,
-  });
+  };
+
+  const { entityKey } = directWalletClient?.createEntity
+    ? await directWalletClient.createEntity(createArgs)
+    : await baseClient.cdn.entity.create(createArgs);
 
   return { entityKey, ...post };
 }
@@ -850,6 +873,8 @@ connectWalletBtn.addEventListener("click", async () => {
       account: walletAddress,
       chain: activeChain,
     });
+    directPublicClient = networkRpcClient;
+    directWalletClient = walletClient;
 
     let txMaxFeePerGas = 2n * ONE_GWEI;
     let txMaxPriorityFeePerGas = ONE_GWEI;
@@ -1122,6 +1147,8 @@ connectWalletBtn.addEventListener("click", async () => {
 disconnectWalletBtn.addEventListener("click", () => {
   client = null;
   walletAddress = null;
+  directWalletClient = null;
+  directPublicClient = null;
   walletAddressEl.textContent = "";
   document.getElementById("profile-display").classList.add("hidden");
   profilePhotoFileEl.value = "";
