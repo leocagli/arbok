@@ -1149,25 +1149,19 @@ document.getElementById("save-profile").addEventListener("click", async () => {
 
     let updateResult;
     try {
-      updateResult = await client.update({ displayName, bio, photo });
-    } catch (updateError) {
-      if (!isTransactionFailedError(updateError)) throw updateError;
-
-      try {
-        updateResult = await updateProfileCompat(client, {
-          displayName,
-          bio,
-          photo,
-          connectedWallet: walletAddress,
-        });
-        setWalletStatus("Perfil guardado con modo compatibilidad.", "warn");
-      } catch (compatError) {
-        const revertDetails = extractErrorDetails(compatError);
-        throw new Error(
-          "La transaccion fue revertida por Arkiv. "
-          + `Detalle tecnico: ${revertDetails}`
-        );
-      }
+      updateResult = await updateProfileCompat(client, {
+        displayName,
+        bio,
+        photo,
+        connectedWallet: walletAddress,
+      });
+      setWalletStatus("Perfil guardado en Arkiv.", "success");
+    } catch (compatError) {
+      const revertDetails = extractErrorDetails(compatError);
+      throw new Error(
+        "La transaccion fue revertida por Arkiv. "
+        + `Detalle tecnico: ${revertDetails}`
+      );
     }
 
     const { profile } = updateResult;
