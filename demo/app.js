@@ -120,6 +120,11 @@ async function ensureKaolinNetwork(provider) {
 }
 
 function deriveUuid(address) {
+  const raw = address.toLowerCase().replace(/^0x/, "");
+  return `u_${raw.slice(0, 12)}${raw.slice(-8)}`;
+}
+
+function deriveLegacyUuid(address) {
   return `user-${address.toLowerCase().replace(/^0x/, "")}`;
 }
 
@@ -539,8 +544,11 @@ connectWalletBtn.addEventListener("click", async () => {
       account: walletAddress,
       chain: kaolin,
     });
-    const makeClient = (publicTransport) => new BaseClient({
-      uuid: deriveUuid(walletAddress),
+    const primaryUuid = deriveUuid(walletAddress);
+    const legacyUuid = deriveLegacyUuid(walletAddress);
+
+    const makeClient = (publicTransport, uuid = primaryUuid) => new BaseClient({
+      uuid,
       wallet: walletAddress,
       photo: DEFAULT_PHOTO,
       cdn: createArbok({
@@ -549,7 +557,8 @@ connectWalletBtn.addEventListener("click", async () => {
       }),
     });
 
-    client = makeClient(http(ARKIV_RPC_URL));
+    let activeTransport = http(ARKIV_RPC_URL);
+    client = makeClient(activeTransport, primaryUuid);
     setWalletStatus("Cargando perfil on-chain...", "info");
 
     let profileResult = null;
@@ -569,7 +578,8 @@ connectWalletBtn.addEventListener("click", async () => {
     } catch (firstError) {
       if (!isRpcLikeError(firstError)) throw firstError;
       setWalletStatus("RPC HTTP fallo, probando lectura via MetaMask...", "warn");
-      client = makeClient(custom(provider));
+      activeTransport = custom(provider);
+      client = makeClient(activeTransport, primaryUuid);
       profileResult = await withRetry(
         () => client.get(),
         {
@@ -583,8 +593,27 @@ connectWalletBtn.addEventListener("click", async () => {
       profileChecked = true;
     }
 
+    if (profileChecked && !profileResult && legacyUuid !== primaryUuid) {
+      try {
+        const legacyClient = makeClient(activeTransport, legacyUuid);
+        const legacyProfile = await withRetry(
+          () => legacyClient.get(),
+          {
+            attempts: 2,
+            delayMs: 700,
+          },
+        );
+        if (legacyProfile) {
+          client = legacyClient;
+          profileResult = legacyProfile;
+          setWalletStatus("Perfil legado encontrado. Conectando...", "info");
+        }
+      } catch {
+      }
+    }
+
     if (profileChecked && !profileResult) {
-      setWalletStatus("Perfil no existe. Creando en cadena...", "info");
+      setWalletStatus(`Perfil no existe. Creando en cadena (${client.uuid})...`, "info");
       try {
         profileResult = await withRetry(
           () => client.getOrCreate(),
