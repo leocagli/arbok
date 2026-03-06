@@ -9,6 +9,7 @@ const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
 const ARKIV_CHAIN_ID = 60138453025;
 const ARKIV_SDK_VERSION = "0.6.2";
 const PROFILE_EXPIRY_SECONDS = 24 * 60 * 60;
+const POST_EXPIRY_SECONDS = 60 * 60;
 const PROFILE_CREATE_GAS_LIMIT = 320000n;
 const ONE_GWEI = 1_000_000_000n;
 
@@ -462,6 +463,34 @@ async function updateProfileCompat(baseClient, data = {}) {
   });
 
   return { entityKey: existing.entityKey, profile: updated };
+}
+
+async function createPostCompat(baseClient, options = {}) {
+  const now = Date.now();
+  const wallet = String(baseClient.wallet || "").toLowerCase();
+  const post = {
+    authorUuid: String(baseClient.uuid || ""),
+    authorWallet: wallet,
+    content: String(options.content || ""),
+    createdAt: now,
+    updatedAt: now,
+    status: "active",
+    ...(Array.isArray(options.media) ? { media: options.media } : {}),
+  };
+
+  const payload = new TextEncoder().encode(JSON.stringify(post));
+  const { entityKey } = await baseClient.cdn.entity.create({
+    payload,
+    contentType: "application/json",
+    attributes: [
+      { key: "arbok_type", value: "arbok.social.post" },
+      { key: "arbok_uuid", value: String(baseClient.uuid || "") },
+      { key: "arbok_wallet", value: wallet },
+    ],
+    expiresIn: POST_EXPIRY_SECONDS,
+  });
+
+  return { entityKey, ...post };
 }
 
 function resolvePhotoSrc(photo) {
@@ -1143,14 +1172,24 @@ document.getElementById("create-post").addEventListener("click", async () => {
       }];
     }
 
-    await client.feed().createPost({ content, media });
+    try {
+      await client.feed().createPost({ content, media });
+    } catch (postError) {
+      if (!isTransactionFailedError(postError)) throw postError;
+      const revertDetails = extractErrorDetails(postError);
+      console.warn("[Arbok][PostCreateError]", revertDetails);
+      await createPostCompat(client, { content, media });
+      setWalletStatus(`Post publicado con modo compatibilidad (ttl=${POST_EXPIRY_SECONDS}s).`, "warn");
+    }
+
     contentEl.value = "";
     postFileEl.value = "";
     await refreshFeed();
     alert("Post publicado.");
   } catch (error) {
     console.error(error);
-    alert("No se pudo publicar: " + userErrorMsg(error));
+    const detail = extractErrorDetails(error);
+    alert("No se pudo publicar: " + userErrorMsg(error) + "\n\nDetalle tecnico: " + detail);
   }
 });
 
