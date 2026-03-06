@@ -8,6 +8,7 @@ const FEED_DISCONNECTED_MESSAGE = "Conecta tu wallet para ver publicaciones de l
 const ARKIV_RPC_URL = "https://kaolin.hoodi.arkiv.network/rpc";
 const ARKIV_CHAIN_ID = 60138453025;
 const ARKIV_SDK_VERSION = "0.6.2";
+const PROFILE_EXPIRY_SECONDS = 365 * 24 * 60 * 60;
 const PROFILE_CREATE_GAS_LIMIT = 320000n;
 const ONE_GWEI = 1_000_000_000n;
 
@@ -293,6 +294,31 @@ function formatGasDiagnostics(snapshot) {
   if (snapshot.gasPrice != null) pieces.push(`gasPrice=${formatWeiToGwei(snapshot.gasPrice)} gwei`);
   if (pieces.length === 0) return "sin datos de gas (wallet no expuso estimate/send)";
   return pieces.join(" | ");
+}
+
+async function createProfileCompat(baseClient) {
+  const now = Date.now();
+  const profile = {
+    uuid: baseClient.uuid,
+    wallet: baseClient.wallet,
+    photo: DEFAULT_PHOTO,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const payload = new TextEncoder().encode(JSON.stringify(profile));
+  const { entityKey } = await baseClient.cdn.entity.create({
+    payload,
+    contentType: "application/json",
+    attributes: [
+      { key: "arbok_type", value: "profile" },
+      { key: "arbok_uuid", value: baseClient.uuid },
+      { key: "arbok_wallet", value: baseClient.wallet },
+    ],
+    expiresIn: PROFILE_EXPIRY_SECONDS,
+  });
+
+  return { entityKey, profile };
 }
 
 function resolvePhotoSrc(photo) {
@@ -765,7 +791,22 @@ connectWalletBtn.addEventListener("click", async () => {
       } catch (createError) {
         const gasInfo = formatGasDiagnostics(gasProbe.snapshot());
         console.warn("[Arbok][Gas] create profile failed:", gasInfo);
-        if (isInsufficientFundsError(createError)) {
+
+        try {
+          const compatResult = await createProfileCompat(client);
+          profileResult = compatResult;
+          setWalletStatus("Perfil creado con modo compatibilidad.", "success");
+          console.info("[Arbok] profile created with compat mode");
+        } catch (compatError) {
+          console.warn("[Arbok] compat profile creation failed:", safeMsg(compatError));
+        }
+
+        if (profileResult) {
+          const gasInfoAfterCompat = formatGasDiagnostics(gasProbe.snapshot());
+          console.info("[Arbok][Gas] compat create profile:", gasInfoAfterCompat);
+        }
+
+        if (!profileResult && isInsufficientFundsError(createError)) {
           setWalletUi(true);
           setWalletStatus("Wallet conectada, pero falta gas para crear perfil.", "warn");
           alert(
@@ -777,7 +818,7 @@ connectWalletBtn.addEventListener("click", async () => {
           return;
         }
 
-        if (isTransactionFailedError(createError)) {
+        if (!profileResult && isTransactionFailedError(createError)) {
           let balanceWei = null;
           try {
             balanceWei = await kaolinRpcClient.getBalance({ address: walletAddress });
