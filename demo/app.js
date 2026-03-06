@@ -124,7 +124,7 @@ async function ensureKaolinNetwork(provider) {
 
 function deriveUuid(address) {
   const raw = address.toLowerCase().replace(/^0x/, "");
-  return `u_${raw.slice(0, 12)}${raw.slice(-8)}`;
+  return `u-${raw.slice(0, 12)}-${raw.slice(-8)}`;
 }
 
 function deriveLegacyUuid(address) {
