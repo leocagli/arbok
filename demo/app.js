@@ -205,6 +205,14 @@ function isTransactionFailedError(error) {
   return /transaction failed|execution reverted|reverted|call exception/i.test(raw);
 }
 
+function formatWeiToEth(wei) {
+  const value = typeof wei === "bigint" ? wei : BigInt(wei || 0);
+  const base = 10n ** 18n;
+  const whole = value / base;
+  const fraction = (value % base).toString().padStart(18, "0").slice(0, 6);
+  return `${whole}.${fraction}`;
+}
+
 function resolvePhotoSrc(photo) {
   if (typeof photo === "string" && /^https?:\/\//i.test(photo)) return photo;
   return DEFAULT_PHOTO;
@@ -521,6 +529,11 @@ connectWalletBtn.addEventListener("click", async () => {
       kaolin,
     } = await loadSdk();
 
+    const kaolinRpcClient = createPublicClient({
+      transport: http(ARKIV_RPC_URL),
+      chain: kaolin,
+    });
+
     const walletClient = createWalletClient({
       transport: custom(provider),
       account: walletAddress,
@@ -584,7 +597,7 @@ connectWalletBtn.addEventListener("click", async () => {
           },
         );
       } catch (createError) {
-        if (isInsufficientFundsError(createError) || isTransactionFailedError(createError)) {
+        if (isInsufficientFundsError(createError)) {
           setWalletUi(true);
           setWalletStatus("Wallet conectada, pero falta gas para crear perfil.", "warn");
           alert(
@@ -594,6 +607,36 @@ connectWalletBtn.addEventListener("click", async () => {
           );
           return;
         }
+
+        if (isTransactionFailedError(createError)) {
+          let balanceWei = null;
+          try {
+            balanceWei = await kaolinRpcClient.getBalance({ address: walletAddress });
+          } catch {
+            balanceWei = null;
+          }
+
+          setWalletUi(true);
+          if (balanceWei === 0n) {
+            setWalletStatus("Wallet conectada, pero sin ETH en Kaolin.", "warn");
+            alert(
+              "Tu wallet parece tener 0 ETH en Arkiv Kaolin (testnet). "
+              + "Saldo Kaolin: 0 ETH. Carga fondos en https://kaolin.hoodi.arkiv.network/faucet/ "
+              + "y vuelve a intentar."
+            );
+            return;
+          }
+
+          const kaolinBalanceText = balanceWei == null ? "desconocido" : `${formatWeiToEth(balanceWei)} ETH`;
+          setWalletStatus("Wallet conectada, pero la transaccion fue revertida.", "warn");
+          alert(
+            "La transaccion de creacion de perfil fallo aunque hay saldo en Kaolin. "
+            + `Saldo Kaolin detectado: ${kaolinBalanceText}. `
+            + "Revisa MetaMask (misma cuenta y red Arkiv Kaolin) y reintenta."
+          );
+          return;
+        }
+
         throw createError;
       }
     }
